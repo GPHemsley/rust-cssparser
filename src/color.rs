@@ -564,8 +564,8 @@ where
 {
     let (red, green, blue, uses_commas) = match_ignore_ascii_case! { name,
         "rgb" | "rgba" => parse_rgb_components_rgb(component_parser, arguments)?,
-        "hsl" | "hsla" => parse_hsl_hwb(component_parser, arguments, hsl_to_rgb, /* allow_comma = */ true)?,
-        "hwb" => parse_hsl_hwb(component_parser, arguments, hwb_to_rgb, /* allow_comma = */ false)?,
+        "hsl" | "hsla" => parse_rgb_components_hsl(component_parser, arguments)?,
+        "hwb" => parse_rgb_components_hwb(component_parser, arguments)?,
         _ => return Err(arguments.new_unexpected_token_error(Token::Ident(name.to_owned().into()))),
     };
 
@@ -624,16 +624,10 @@ where
     Ok((red, green, blue, uses_commas))
 }
 
-/// Parses hsl and hbw syntax, which happens to be identical.
-///
-/// https://drafts.csswg.org/css-color/#the-hsl-notation
-/// https://drafts.csswg.org/css-color/#the-hbw-notation
 #[inline]
-fn parse_hsl_hwb<'i, 't, ComponentParser>(
+fn parse_rgb_components_hsl<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
     arguments: &mut Parser<'i, 't>,
-    to_rgb: impl FnOnce(f32, f32, f32) -> (f32, f32, f32),
-    allow_comma: bool,
 ) -> Result<(u8, u8, u8, bool), ParseError<'i, ComponentParser::Error>>
 where
     ComponentParser: ColorComponentParser<'i>,
@@ -647,17 +641,54 @@ where
     let hue = hue_normalized_degrees / 360.;
 
     // Saturation and lightness are clamped to 0% ... 100%
-    let uses_commas = allow_comma && arguments.try_parse(|i| i.expect_comma()).is_ok();
+    // https://drafts.csswg.org/css-color/#the-hsl-notation
+    let uses_commas = arguments.try_parse(|i| i.expect_comma()).is_ok();
 
-    let first_percentage = component_parser.parse_percentage(arguments)?.max(0.).min(1.);
+    let saturation = component_parser.parse_percentage(arguments)?;
+    let saturation = saturation.max(0.).min(1.);
 
     if uses_commas {
         arguments.expect_comma()?;
     }
 
-    let second_percentage = component_parser.parse_percentage(arguments)?.max(0.).min(1.);
+    let lightness = component_parser.parse_percentage(arguments)?;
+    let lightness = lightness.max(0.).min(1.);
 
-    let (red, green, blue) = to_rgb(hue, first_percentage, second_percentage);
+    let (red, green, blue) = hsl_to_rgb(hue, saturation, lightness);
+    let red = clamp_unit_f32(red);
+    let green = clamp_unit_f32(green);
+    let blue = clamp_unit_f32(blue);
+    Ok((red, green, blue, uses_commas))
+}
+
+#[inline]
+fn parse_rgb_components_hwb<'i, 't, ComponentParser>(
+    component_parser: &ComponentParser,
+    arguments: &mut Parser<'i, 't>,
+) -> Result<(u8, u8, u8, bool), ParseError<'i, ComponentParser::Error>>
+where
+    ComponentParser: ColorComponentParser<'i>,
+{
+    let hue_degrees = component_parser.parse_angle_or_number(arguments)?.degrees();
+
+    // Subtract an integer before rounding, to avoid some rounding errors:
+    let hue_normalized_degrees = hue_degrees - 360. * (hue_degrees / 360.).floor();
+    let hue = hue_normalized_degrees / 360.;
+
+    let uses_commas = arguments.try_parse(|i| i.expect_comma()).is_ok();
+
+    let whiteness = component_parser.parse_percentage(arguments)?;
+    let whiteness = whiteness.max(0.).min(1.);
+
+    if uses_commas {
+        arguments.expect_comma()?;
+    }
+
+    let blackness = component_parser.parse_percentage(arguments)?;
+    let blackness = blackness.max(0.).min(1.);
+
+    let (red, green, blue) = hwb_to_rgb(hue, whiteness, blackness);
+
     let red = clamp_unit_f32(red);
     let green = clamp_unit_f32(green);
     let blue = clamp_unit_f32(blue);
