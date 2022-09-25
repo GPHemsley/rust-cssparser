@@ -553,23 +553,15 @@ fn clamp_floor_256_f32(val: f32) -> u8 {
     val.round().max(0.).min(255.) as u8
 }
 
-#[inline]
-fn parse_color_function<'i, 't, ComponentParser>(
+fn parse_alpha_component<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
-    name: &str,
     arguments: &mut Parser<'i, 't>,
-) -> Result<Color, ParseError<'i, ComponentParser::Error>>
+    uses_commas: bool,
+) -> Result<u8, ParseError<'i, ComponentParser::Error>>
 where
     ComponentParser: ColorComponentParser<'i>,
 {
-    let (red, green, blue, uses_commas) = match_ignore_ascii_case! { name,
-        "rgb" | "rgba" => parse_rgb_components_rgb(component_parser, arguments)?,
-        "hsl" | "hsla" => parse_rgb_components_hsl(component_parser, arguments)?,
-        "hwb" => parse_rgb_components_hwb(component_parser, arguments)?,
-        _ => return Err(arguments.new_unexpected_token_error(Token::Ident(name.to_owned().into()))),
-    };
-
-    let alpha = if !arguments.is_exhausted() {
+    Ok(if !arguments.is_exhausted() {
         if uses_commas {
             arguments.expect_comma()?;
         } else {
@@ -582,6 +574,23 @@ where
         )
     } else {
         255
+    })
+}
+
+#[inline]
+fn parse_color_function<'i, 't, ComponentParser>(
+    component_parser: &ComponentParser,
+    name: &str,
+    arguments: &mut Parser<'i, 't>,
+) -> Result<Color, ParseError<'i, ComponentParser::Error>>
+where
+    ComponentParser: ColorComponentParser<'i>,
+{
+    let (red, green, blue, alpha) = match_ignore_ascii_case! { name,
+        "rgb" | "rgba" => parse_rgb_components_rgb(component_parser, arguments)?,
+        "hsl" | "hsla" => parse_rgb_components_hsl(component_parser, arguments)?,
+        "hwb" => parse_rgb_components_hwb(component_parser, arguments)?,
+        _ => return Err(arguments.new_unexpected_token_error(Token::Ident(name.to_owned().into()))),
     };
 
     arguments.expect_exhausted()?;
@@ -594,7 +603,7 @@ where
 fn parse_rgb_components_rgb<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
     arguments: &mut Parser<'i, 't>,
-) -> Result<(u8, u8, u8, bool), ParseError<'i, ComponentParser::Error>>
+) -> Result<(u8, u8, u8, u8), ParseError<'i, ComponentParser::Error>>
 where
     ComponentParser: ColorComponentParser<'i>,
 {
@@ -622,7 +631,9 @@ where
         blue = clamp_unit_f32(component_parser.parse_percentage(arguments)?);
     }
 
-    Ok((red, green, blue, uses_commas))
+    let alpha = parse_alpha_component(component_parser, arguments, uses_commas)?;
+
+    Ok((red, green, blue, alpha))
 }
 
 /// https://drafts.csswg.org/css-color-4/#the-hsl-notation
@@ -631,7 +642,7 @@ where
 fn parse_rgb_components_hsl<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
     arguments: &mut Parser<'i, 't>,
-) -> Result<(u8, u8, u8, bool), ParseError<'i, ComponentParser::Error>>
+) -> Result<(u8, u8, u8, u8), ParseError<'i, ComponentParser::Error>>
 where
     ComponentParser: ColorComponentParser<'i>,
 {
@@ -660,7 +671,8 @@ where
     let red = clamp_unit_f32(red);
     let green = clamp_unit_f32(green);
     let blue = clamp_unit_f32(blue);
-    Ok((red, green, blue, uses_commas))
+    let alpha = parse_alpha_component(component_parser, arguments, uses_commas)?;
+    Ok((red, green, blue, alpha))
 }
 
 /// https://drafts.csswg.org/css-color-4/#the-hwb-notation
@@ -669,7 +681,7 @@ where
 fn parse_rgb_components_hwb<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
     arguments: &mut Parser<'i, 't>,
-) -> Result<(u8, u8, u8, bool), ParseError<'i, ComponentParser::Error>>
+) -> Result<(u8, u8, u8, u8), ParseError<'i, ComponentParser::Error>>
 where
     ComponentParser: ColorComponentParser<'i>,
 {
@@ -690,8 +702,8 @@ where
     let red = clamp_unit_f32(red);
     let green = clamp_unit_f32(green);
     let blue = clamp_unit_f32(blue);
-    let uses_commas = false;
-    Ok((red, green, blue, uses_commas))
+    let alpha = parse_alpha_component(component_parser, arguments, false)?;
+    Ok((red, green, blue, alpha))
 }
 
 /// https://drafts.csswg.org/css-color-4/#hwb-to-rgb
