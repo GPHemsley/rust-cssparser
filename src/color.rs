@@ -675,14 +675,8 @@ where
     let hue_normalized_degrees = hue_degrees - 360. * (hue_degrees / 360.).floor();
     let hue = hue_normalized_degrees / 360.;
 
-    let uses_commas = arguments.try_parse(|i| i.expect_comma()).is_ok();
-
     let whiteness = component_parser.parse_percentage(arguments)?;
     let whiteness = whiteness.max(0.).min(1.);
-
-    if uses_commas {
-        arguments.expect_comma()?;
-    }
 
     let blackness = component_parser.parse_percentage(arguments)?;
     let blackness = blackness.max(0.).min(1.);
@@ -692,6 +686,7 @@ where
     let red = clamp_unit_f32(red);
     let green = clamp_unit_f32(green);
     let blue = clamp_unit_f32(blue);
+    let uses_commas = false;
     Ok((red, green, blue, uses_commas))
 }
 
