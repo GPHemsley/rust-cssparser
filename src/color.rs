@@ -588,6 +588,8 @@ where
     Ok(rgba(red, green, blue, alpha))
 }
 
+/// https://drafts.csswg.org/css-color-4/#rgb-functions
+// TODO: Support 'none' keyword.
 #[inline]
 fn parse_rgb_components_rgb<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
@@ -597,7 +599,6 @@ where
     ComponentParser: ColorComponentParser<'i>,
 {
     // Either integers or percentages, but all the same type.
-    // https://drafts.csswg.org/css-color/#rgb-functions
     let (red, is_number) = match component_parser.parse_number_or_percentage(arguments)? {
         NumberOrPercentage::Number { value } => (clamp_floor_256_f32(value), true),
         NumberOrPercentage::Percentage { unit_value } => (clamp_unit_f32(unit_value), false),
@@ -624,6 +625,8 @@ where
     Ok((red, green, blue, uses_commas))
 }
 
+/// https://drafts.csswg.org/css-color-4/#the-hsl-notation
+// TODO: Support 'none' keyword.
 #[inline]
 fn parse_rgb_components_hsl<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
@@ -633,7 +636,7 @@ where
     ComponentParser: ColorComponentParser<'i>,
 {
     // Hue given as an angle
-    // https://drafts.csswg.org/css-values/#angles
+    // https://drafts.csswg.org/css-values-4/#angles
     let hue_degrees = component_parser.parse_angle_or_number(arguments)?.degrees();
 
     // Subtract an integer before rounding, to avoid some rounding errors:
@@ -641,7 +644,6 @@ where
     let hue = hue_normalized_degrees / 360.;
 
     // Saturation and lightness are clamped to 0% ... 100%
-    // https://drafts.csswg.org/css-color/#the-hsl-notation
     let uses_commas = arguments.try_parse(|i| i.expect_comma()).is_ok();
 
     let saturation = component_parser.parse_percentage(arguments)?;
@@ -661,6 +663,8 @@ where
     Ok((red, green, blue, uses_commas))
 }
 
+/// https://drafts.csswg.org/css-color-4/#the-hwb-notation
+// TODO: Support 'none' keyword.
 #[inline]
 fn parse_rgb_components_hwb<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
@@ -706,7 +710,7 @@ pub fn hwb_to_rgb(h: f32, w: f32, b: f32) -> (f32, f32, f32) {
     (red, green, blue)
 }
 
-/// https://drafts.csswg.org/css-color/#hsl-color
+/// https://drafts.csswg.org/css-color-4/#hsl-to-rgb
 /// except with h pre-multiplied by 3, to avoid some rounding errors.
 #[inline]
 pub fn hsl_to_rgb(hue: f32, saturation: f32, lightness: f32) -> (f32, f32, f32) {
