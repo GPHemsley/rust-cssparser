@@ -130,6 +130,7 @@ impl ToCss for RGBA {
 }
 
 /// A <color> value.
+/// https://www.w3.org/TR/css-color-4/#typedef-color
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Color {
     /// The 'currentcolor' keyword
@@ -165,15 +166,6 @@ pub enum NumberOrPercentage {
     },
 }
 
-impl NumberOrPercentage {
-    fn unit_value(&self) -> f32 {
-        match *self {
-            NumberOrPercentage::Number { value } => value,
-            NumberOrPercentage::Percentage { unit_value } => unit_value,
-        }
-    }
-}
-
 /// Either an angle or a number.
 pub enum AngleOrNumber {
     /// `<number>`.
@@ -188,13 +180,16 @@ pub enum AngleOrNumber {
     },
 }
 
-impl AngleOrNumber {
-    fn degrees(&self) -> f32 {
-        match *self {
-            AngleOrNumber::Number { value } => value,
-            AngleOrNumber::Angle { degrees } => degrees,
-        }
-    }
+/// https://www.w3.org/TR/css-color-4/#hue-syntax
+pub struct Hue {
+    /// The value as a number of degrees.
+    degrees: f32,
+}
+
+/// https://www.w3.org/TR/css-color-4/#typedef-alpha-value
+pub struct AlphaValue {
+    /// The value as a number in the range of 0 to 1.
+    number: f32,
 }
 
 /// A trait that can be used to hook into how `cssparser` parses color
@@ -259,6 +254,64 @@ pub trait ColorComponentParser<'i> {
         Ok(match *input.next()? {
             Token::Number { value, .. } => NumberOrPercentage::Number { value },
             Token::Percentage { unit_value, .. } => NumberOrPercentage::Percentage { unit_value },
+            ref t => return Err(location.new_unexpected_token_error(t.clone())),
+        })
+    }
+
+    /// Parse a `none` identifier or run other parse function.
+    fn parse_none_or<'t, T>(
+        &self,
+        other_parse_fn: fn(&Self, &mut Parser<'i, 't>) -> Result<T, ParseError<'i, Self::Error>>,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Option<T>, ParseError<'i, Self::Error>> {
+        if input
+            .try_parse(|input| input.expect_ident_matching("none"))
+            .is_ok()
+        {
+            Ok(None)
+        } else {
+            Ok(Some(other_parse_fn(self, input)?))
+        }
+    }
+
+    /// Parse a `<hue>` value.
+    /// https://www.w3.org/TR/css-color-4/#typedef-hue
+    fn parse_hue<'t>(
+        &self,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Hue, ParseError<'i, Self::Error>> {
+        let location = input.current_source_location();
+        Ok(match *input.next()? {
+            Token::Number { value: degrees, .. } => Hue { degrees },
+            Token::Dimension {
+                value: v, ref unit, ..
+            } => {
+                let degrees = match_ignore_ascii_case! { &*unit,
+                    "deg" => v,
+                    "grad" => (v / 400.) * 360.,
+                    "rad" => (v / (2. * PI)) * 360.,
+                    "turn" => v * 360.,
+                    _ => return Err(location.new_unexpected_token_error(Token::Ident(unit.clone()))),
+                };
+
+                Hue { degrees }
+            }
+            ref t => return Err(location.new_unexpected_token_error(t.clone())),
+        })
+    }
+
+    /// Parse a `<alpha-value>` value.
+    /// https://www.w3.org/TR/css-color-4/#typedef-alpha-value
+    fn parse_alpha_value<'t>(
+        &self,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<AlphaValue, ParseError<'i, Self::Error>> {
+        let location = input.current_source_location();
+        Ok(match *input.next()? {
+            Token::Number { value: number, .. } => AlphaValue { number },
+            Token::Percentage {
+                unit_value: number, ..
+            } => AlphaValue { number },
             ref t => return Err(location.new_unexpected_token_error(t.clone())),
         })
     }
@@ -556,24 +609,19 @@ fn clamp_floor_256_f32(val: f32) -> u8 {
 fn parse_alpha_component<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
     arguments: &mut Parser<'i, 't>,
-    uses_commas: bool,
-) -> Result<u8, ParseError<'i, ComponentParser::Error>>
+) -> Result<f32, ParseError<'i, ComponentParser::Error>>
 where
     ComponentParser: ColorComponentParser<'i>,
 {
     Ok(if !arguments.is_exhausted() {
-        if uses_commas {
-            arguments.expect_comma()?;
-        } else {
-            arguments.expect_delim('/')?;
-        };
-        clamp_unit_f32(
-            component_parser
-                .parse_number_or_percentage(arguments)?
-                .unit_value(),
-        )
+        arguments.expect_delim('/')?;
+
+        match component_parser.parse_none_or(ColorComponentParser::parse_alpha_value, arguments)? {
+            Some(alpha_value) => alpha_value.number,
+            None => 0.,
+        }
     } else {
-        255
+        1.
     })
 }
 
@@ -598,7 +646,6 @@ where
 }
 
 /// https://drafts.csswg.org/css-color-4/#rgb-functions
-// TODO: Support 'none' keyword.
 #[inline]
 fn parse_rgb_components_rgb<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
@@ -607,37 +654,119 @@ fn parse_rgb_components_rgb<'i, 't, ComponentParser>(
 where
     ComponentParser: ColorComponentParser<'i>,
 {
-    // Either integers or percentages, but all the same type.
-    let (red, is_number) = match component_parser.parse_number_or_percentage(arguments)? {
-        NumberOrPercentage::Number { value } => (clamp_floor_256_f32(value), true),
-        NumberOrPercentage::Percentage { unit_value } => (clamp_unit_f32(unit_value), false),
-    };
+    // Try to parse legacy syntax first.
+    let legacy_syntax_result = arguments.try_parse(|input| {
+        input.parse_entirely(|input| {
+            // Determine whether this is the number syntax or the percentage syntax.
+            let red_number = input.try_parse(|input| input.expect_number());
 
-    let uses_commas = arguments.try_parse(|i| i.expect_comma()).is_ok();
+            let red;
+            let green;
+            let blue;
+            if red_number.is_ok() {
+                red = clamp_floor_256_f32(red_number?);
 
-    let green;
-    let blue;
-    if is_number {
-        green = clamp_floor_256_f32(component_parser.parse_number(arguments)?);
-        if uses_commas {
-            arguments.expect_comma()?;
-        }
-        blue = clamp_floor_256_f32(component_parser.parse_number(arguments)?);
-    } else {
-        green = clamp_unit_f32(component_parser.parse_percentage(arguments)?);
-        if uses_commas {
-            arguments.expect_comma()?;
-        }
-        blue = clamp_unit_f32(component_parser.parse_percentage(arguments)?);
+                input.expect_comma()?;
+
+                green = clamp_floor_256_f32(input.expect_number()?);
+
+                input.expect_comma()?;
+
+                blue = clamp_floor_256_f32(input.expect_number()?);
+            } else {
+                red = clamp_unit_f32(input.expect_percentage()?);
+
+                input.expect_comma()?;
+
+                green = clamp_unit_f32(input.expect_percentage()?);
+
+                input.expect_comma()?;
+
+                blue = clamp_unit_f32(input.expect_percentage()?);
+            }
+
+            let alpha;
+            if !input.is_exhausted() {
+                input.expect_comma()?;
+
+                alpha = clamp_unit_f32(component_parser.parse_alpha_value(input)?.number);
+            } else {
+                alpha = clamp_unit_f32(1.);
+            }
+
+            Ok((red, green, blue, alpha))
+        })
+    });
+
+    if legacy_syntax_result.is_ok() {
+        return legacy_syntax_result;
     }
 
-    let alpha = parse_alpha_component(component_parser, arguments, uses_commas)?;
+    // Determine whether this is the number syntax or the percentage syntax.
+    let number_result: Result<
+        (Option<f32>, Option<f32>, Option<f32>),
+        ParseError<<ComponentParser as ColorComponentParser>::Error>,
+    > = arguments.try_parse(|input| {
+        let red_number = component_parser.parse_none_or(ColorComponentParser::parse_number, input);
+        let green_number =
+            component_parser.parse_none_or(ColorComponentParser::parse_number, input);
+        let blue_number = component_parser.parse_none_or(ColorComponentParser::parse_number, input);
 
-    Ok((red, green, blue, alpha))
+        Ok((red_number?, green_number?, blue_number?))
+    });
+
+    let computed_red;
+    let computed_green;
+    let computed_blue;
+    if number_result.is_ok() {
+        let (red_number, green_number, blue_number) = number_result?;
+
+        computed_red = clamp_floor_256_f32(match red_number {
+            Some(red) => red,
+            None => 0.,
+        });
+        computed_green = clamp_floor_256_f32(match green_number {
+            Some(green) => green,
+            None => 0.,
+        });
+        computed_blue = clamp_floor_256_f32(match blue_number {
+            Some(blue) => blue,
+            None => 0.,
+        });
+    } else {
+        let red_percentage =
+            component_parser.parse_none_or(ColorComponentParser::parse_percentage, arguments)?;
+        let green_percentage =
+            component_parser.parse_none_or(ColorComponentParser::parse_percentage, arguments)?;
+        let blue_percentage =
+            component_parser.parse_none_or(ColorComponentParser::parse_percentage, arguments)?;
+
+        computed_red = clamp_unit_f32(match red_percentage {
+            Some(red) => red,
+            None => 0.,
+        });
+        computed_green = clamp_unit_f32(match green_percentage {
+            Some(green) => green,
+            None => 0.,
+        });
+        computed_blue = clamp_unit_f32(match blue_percentage {
+            Some(blue) => blue,
+            None => 0.,
+        });
+    }
+
+    let computed_alpha = clamp_unit_f32(parse_alpha_component(component_parser, arguments)?);
+
+    Ok((computed_red, computed_green, computed_blue, computed_alpha))
+}
+
+#[inline]
+fn fix_hue_rounding_errors(value: f32) -> f32 {
+    // Subtract an integer before rounding, to avoid some rounding errors.
+    (value - 360. * (value / 360.).floor()) / 360.
 }
 
 /// https://drafts.csswg.org/css-color-4/#the-hsl-notation
-// TODO: Support 'none' keyword.
 #[inline]
 fn parse_rgb_components_hsl<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
@@ -646,37 +775,83 @@ fn parse_rgb_components_hsl<'i, 't, ComponentParser>(
 where
     ComponentParser: ColorComponentParser<'i>,
 {
-    // Hue given as an angle
-    // https://drafts.csswg.org/css-values-4/#angles
-    let hue_degrees = component_parser.parse_angle_or_number(arguments)?.degrees();
+    // Try to parse legacy syntax first.
+    let legacy_syntax_result = arguments.try_parse(|input| {
+        input.parse_entirely(|input| {
+            let computed_hue = fix_hue_rounding_errors(component_parser.parse_hue(input)?.degrees);
 
-    // Subtract an integer before rounding, to avoid some rounding errors:
-    let hue_normalized_degrees = hue_degrees - 360. * (hue_degrees / 360.).floor();
-    let hue = hue_normalized_degrees / 360.;
+            input.expect_comma()?;
 
-    // Saturation and lightness are clamped to 0% ... 100%
-    let uses_commas = arguments.try_parse(|i| i.expect_comma()).is_ok();
+            let computed_saturation = input.expect_percentage()?;
 
-    let saturation = component_parser.parse_percentage(arguments)?;
-    let saturation = saturation.max(0.).min(1.);
+            input.expect_comma()?;
 
-    if uses_commas {
-        arguments.expect_comma()?;
+            let computed_lightness = input.expect_percentage()?;
+
+            let computed_alpha;
+            if !input.is_exhausted() {
+                input.expect_comma()?;
+
+                computed_alpha = component_parser.parse_alpha_value(input)?.number;
+            } else {
+                computed_alpha = 1.;
+            }
+
+            Ok((
+                computed_hue,
+                computed_saturation,
+                computed_lightness,
+                computed_alpha,
+            ))
+        })
+    });
+
+    let computed_hue;
+    let computed_saturation;
+    let computed_lightness;
+    let computed_alpha;
+    if legacy_syntax_result.is_ok() {
+        (
+            computed_hue,
+            computed_saturation,
+            computed_lightness,
+            computed_alpha,
+        ) = legacy_syntax_result?;
+    } else {
+        computed_hue =
+            match component_parser.parse_none_or(ColorComponentParser::parse_hue, arguments)? {
+                Some(hue) => fix_hue_rounding_errors(hue.degrees),
+                None => 0.,
+            };
+
+        computed_saturation = match component_parser
+            .parse_none_or(ColorComponentParser::parse_percentage, arguments)?
+        {
+            Some(saturation) => saturation.clamp(0., 1.),
+            None => 0.,
+        };
+
+        computed_lightness = match component_parser
+            .parse_none_or(ColorComponentParser::parse_percentage, arguments)?
+        {
+            Some(lightness) => lightness.clamp(0., 1.),
+            None => 0.,
+        };
+
+        computed_alpha = parse_alpha_component(component_parser, arguments)?;
     }
 
-    let lightness = component_parser.parse_percentage(arguments)?;
-    let lightness = lightness.max(0.).min(1.);
+    let (red, green, blue) = hsl_to_rgb(computed_hue, computed_saturation, computed_lightness);
 
-    let (red, green, blue) = hsl_to_rgb(hue, saturation, lightness);
-    let red = clamp_unit_f32(red);
-    let green = clamp_unit_f32(green);
-    let blue = clamp_unit_f32(blue);
-    let alpha = parse_alpha_component(component_parser, arguments, uses_commas)?;
-    Ok((red, green, blue, alpha))
+    Ok((
+        clamp_unit_f32(red),
+        clamp_unit_f32(green),
+        clamp_unit_f32(blue),
+        clamp_unit_f32(computed_alpha),
+    ))
 }
 
 /// https://drafts.csswg.org/css-color-4/#the-hwb-notation
-// TODO: Support 'none' keyword.
 #[inline]
 fn parse_rgb_components_hwb<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
@@ -685,25 +860,34 @@ fn parse_rgb_components_hwb<'i, 't, ComponentParser>(
 where
     ComponentParser: ColorComponentParser<'i>,
 {
-    let hue_degrees = component_parser.parse_angle_or_number(arguments)?.degrees();
+    let computed_hue =
+        match component_parser.parse_none_or(ColorComponentParser::parse_hue, arguments)? {
+            Some(hue) => fix_hue_rounding_errors(hue.degrees),
+            None => 0.,
+        };
 
-    // Subtract an integer before rounding, to avoid some rounding errors:
-    let hue_normalized_degrees = hue_degrees - 360. * (hue_degrees / 360.).floor();
-    let hue = hue_normalized_degrees / 360.;
+    let computed_whiteness =
+        match component_parser.parse_none_or(ColorComponentParser::parse_percentage, arguments)? {
+            Some(whiteness) => whiteness.clamp(0., 1.),
+            None => 0.,
+        };
 
-    let whiteness = component_parser.parse_percentage(arguments)?;
-    let whiteness = whiteness.max(0.).min(1.);
+    let computed_blackness =
+        match component_parser.parse_none_or(ColorComponentParser::parse_percentage, arguments)? {
+            Some(blackness) => blackness.clamp(0., 1.),
+            None => 0.,
+        };
 
-    let blackness = component_parser.parse_percentage(arguments)?;
-    let blackness = blackness.max(0.).min(1.);
+    let computed_alpha = parse_alpha_component(component_parser, arguments)?;
 
-    let (red, green, blue) = hwb_to_rgb(hue, whiteness, blackness);
+    let (red, green, blue) = hwb_to_rgb(computed_hue, computed_whiteness, computed_blackness);
 
-    let red = clamp_unit_f32(red);
-    let green = clamp_unit_f32(green);
-    let blue = clamp_unit_f32(blue);
-    let alpha = parse_alpha_component(component_parser, arguments, false)?;
-    Ok((red, green, blue, alpha))
+    Ok((
+        clamp_unit_f32(red),
+        clamp_unit_f32(green),
+        clamp_unit_f32(blue),
+        clamp_unit_f32(computed_alpha),
+    ))
 }
 
 /// https://drafts.csswg.org/css-color-4/#hwb-to-rgb
