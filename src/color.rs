@@ -259,6 +259,22 @@ pub trait ColorComponentParser<'i> {
         })
     }
 
+    /// Parse a `none` identifier or run other parse function.
+    fn parse_none_or<'t, T>(
+        &self,
+        other_parse_fn: fn(&Self, &mut Parser<'i, 't>) -> Result<T, ParseError<'i, Self::Error>>,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Option<T>, ParseError<'i, Self::Error>> {
+        if input
+            .try_parse(|input| input.expect_ident_matching("none"))
+            .is_ok()
+        {
+            Ok(None)
+        } else {
+            Ok(Some(other_parse_fn(self, input)?))
+        }
+    }
+
     /// Parse a `<hue>` value.
     /// https://w3c.github.io/csswg-drafts/css-color-4/#typedef-hue
     fn parse_hue<'t>(
@@ -624,7 +640,10 @@ where
     Ok(if !arguments.is_exhausted() {
         arguments.expect_delim('/')?;
 
-        component_parser.parse_alpha_value(arguments)?.number
+        match component_parser.parse_none_or(ColorComponentParser::parse_alpha_value, arguments)? {
+            Some(alpha_value) => alpha_value.number,
+            None => 0.,
+        }
     } else {
         1.
     })
@@ -689,12 +708,15 @@ where
 
     // Determine whether this is the number syntax or the percentage syntax.
     let number_result: Result<
-        (f32, f32, f32),
+        (Option<f32>, Option<f32>, Option<f32>),
         ParseError<<ComponentParser as ColorComponentParser>::Error>,
     > = arguments.try_parse(|input| {
-        let red_number = component_parser.parse_number(input)?;
-        let green_number = component_parser.parse_number(input)?;
-        let blue_number = component_parser.parse_number(input)?;
+        let red_number =
+            component_parser.parse_none_or(ColorComponentParser::parse_number, input)?;
+        let green_number =
+            component_parser.parse_none_or(ColorComponentParser::parse_number, input)?;
+        let blue_number =
+            component_parser.parse_none_or(ColorComponentParser::parse_number, input)?;
 
         Ok((red_number, green_number, blue_number))
     });
@@ -705,17 +727,38 @@ where
     if number_result.is_ok() {
         let (red_number, green_number, blue_number) = number_result?;
 
-        computed_red = clamp_floor_256_f32(red_number);
-        computed_green = clamp_floor_256_f32(green_number);
-        computed_blue = clamp_floor_256_f32(blue_number);
+        computed_red = clamp_floor_256_f32(match red_number {
+            Some(red) => red,
+            None => 0.,
+        });
+        computed_green = clamp_floor_256_f32(match green_number {
+            Some(green) => green,
+            None => 0.,
+        });
+        computed_blue = clamp_floor_256_f32(match blue_number {
+            Some(blue) => blue,
+            None => 0.,
+        });
     } else {
-        let red_percentage = component_parser.parse_percentage(arguments)?;
-        let green_percentage = component_parser.parse_percentage(arguments)?;
-        let blue_percentage = component_parser.parse_percentage(arguments)?;
+        let red_percentage =
+            component_parser.parse_none_or(ColorComponentParser::parse_percentage, arguments)?;
+        let green_percentage =
+            component_parser.parse_none_or(ColorComponentParser::parse_percentage, arguments)?;
+        let blue_percentage =
+            component_parser.parse_none_or(ColorComponentParser::parse_percentage, arguments)?;
 
-        computed_red = clamp_unit_f32(red_percentage);
-        computed_green = clamp_unit_f32(green_percentage);
-        computed_blue = clamp_unit_f32(blue_percentage);
+        computed_red = clamp_unit_f32(match red_percentage {
+            Some(red) => red,
+            None => 0.,
+        });
+        computed_green = clamp_unit_f32(match green_percentage {
+            Some(green) => green,
+            None => 0.,
+        });
+        computed_blue = clamp_unit_f32(match blue_percentage {
+            Some(blue) => blue,
+            None => 0.,
+        });
     }
 
     let computed_alpha = clamp_unit_f32(parse_alpha_component(component_parser, arguments)?);
@@ -781,11 +824,25 @@ where
             computed_alpha,
         ) = legacy_syntax_result?;
     } else {
-        computed_hue = fix_hue_rounding_errors(component_parser.parse_hue(arguments)?.degrees);
+        computed_hue =
+            match component_parser.parse_none_or(ColorComponentParser::parse_hue, arguments)? {
+                Some(hue) => fix_hue_rounding_errors(hue.degrees),
+                None => 0.,
+            };
 
-        computed_saturation = component_parser.parse_percentage(arguments)?.clamp(0., 1.);
+        computed_saturation = match component_parser
+            .parse_none_or(ColorComponentParser::parse_percentage, arguments)?
+        {
+            Some(saturation) => saturation.clamp(0., 1.),
+            None => 0.,
+        };
 
-        computed_lightness = component_parser.parse_percentage(arguments)?.clamp(0., 1.);
+        computed_lightness = match component_parser
+            .parse_none_or(ColorComponentParser::parse_percentage, arguments)?
+        {
+            Some(lightness) => lightness.clamp(0., 1.),
+            None => 0.,
+        };
 
         computed_alpha = parse_alpha_component(component_parser, arguments)?;
     }
@@ -809,11 +866,23 @@ fn parse_rgb_components_hwb<'i, 't, ComponentParser>(
 where
     ComponentParser: ColorComponentParser<'i>,
 {
-    let computed_hue = fix_hue_rounding_errors(component_parser.parse_hue(arguments)?.degrees);
+    let computed_hue =
+        match component_parser.parse_none_or(ColorComponentParser::parse_hue, arguments)? {
+            Some(hue) => fix_hue_rounding_errors(hue.degrees),
+            None => 0.,
+        };
 
-    let computed_whiteness = component_parser.parse_percentage(arguments)?.clamp(0., 1.);
+    let computed_whiteness =
+        match component_parser.parse_none_or(ColorComponentParser::parse_percentage, arguments)? {
+            Some(whiteness) => whiteness.clamp(0., 1.),
+            None => 0.,
+        };
 
-    let computed_blackness = component_parser.parse_percentage(arguments)?.clamp(0., 1.);
+    let computed_blackness =
+        match component_parser.parse_none_or(ColorComponentParser::parse_percentage, arguments)? {
+            Some(blackness) => blackness.clamp(0., 1.),
+            None => 0.,
+        };
 
     let computed_alpha = parse_alpha_component(component_parser, arguments)?;
 
