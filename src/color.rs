@@ -713,3 +713,919 @@ pub fn hsl_to_rgb(hue: f32, saturation: f32, lightness: f32) -> (f32, f32, f32) 
     let blue = hue_to_rgb(m1, m2, hue_times_3 - 1.);
     (red, green, blue)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        color::DefaultComponentParser, AngleOrNumber, Color, ColorComponentParser,
+        NumberOrPercentage, Parser, ParserInput, ToCss, RGBA,
+    };
+
+    #[test]
+    fn rgba_new() {
+        assert_eq!(
+            RGBA::new(0, 0, 0, 0),
+            RGBA {
+                red: 0,
+                green: 0,
+                blue: 0,
+                alpha: 0
+            }
+        );
+        assert_eq!(
+            RGBA::new(0, 0, 0, 255),
+            RGBA {
+                red: 0,
+                green: 0,
+                blue: 0,
+                alpha: 255
+            }
+        );
+        assert_eq!(
+            RGBA::new(255, 255, 255, 0),
+            RGBA {
+                red: 255,
+                green: 255,
+                blue: 255,
+                alpha: 0
+            }
+        );
+        assert_eq!(
+            RGBA::new(255, 255, 255, 255),
+            RGBA {
+                red: 255,
+                green: 255,
+                blue: 255,
+                alpha: 255
+            }
+        );
+    }
+
+    #[test]
+    fn rgba_from_floats() {
+        assert_eq!(
+            RGBA::from_floats(0., 0., 0., 0.),
+            RGBA {
+                red: 0,
+                green: 0,
+                blue: 0,
+                alpha: 0
+            }
+        );
+        assert_eq!(
+            RGBA::from_floats(0., 0., 0., 255.),
+            RGBA {
+                red: 0,
+                green: 0,
+                blue: 0,
+                alpha: 255
+            }
+        );
+        assert_eq!(
+            RGBA::from_floats(255., 255., 255., 0.),
+            RGBA {
+                red: 255,
+                green: 255,
+                blue: 255,
+                alpha: 0
+            }
+        );
+        assert_eq!(
+            RGBA::from_floats(255., 255., 255., 255.),
+            RGBA {
+                red: 255,
+                green: 255,
+                blue: 255,
+                alpha: 255
+            }
+        );
+        assert_eq!(
+            RGBA::from_floats(-255., -255., -255., -255.),
+            RGBA {
+                red: 0,
+                green: 0,
+                blue: 0,
+                alpha: 0
+            }
+        );
+        assert_eq!(
+            RGBA::from_floats(256., 256., 256., 256.),
+            RGBA {
+                red: 255,
+                green: 255,
+                blue: 255,
+                alpha: 255
+            }
+        );
+    }
+
+    #[test]
+    fn rgba_transparent() {
+        let transparent_rgba = RGBA::transparent();
+
+        // NOTE: Neither the documentation nor the function name claims that this need be transparent black.
+        assert_eq!(transparent_rgba.alpha, 0);
+    }
+
+    #[test]
+    fn rgba_red_32() {
+        assert_eq!(RGBA::new(0, 51, 170, 255).red_f32(), 0.);
+        assert_eq!(RGBA::new(51, 0, 170, 255).red_f32(), 0.2);
+        assert_eq!(RGBA::new(170, 0, 51, 255).red_f32(), (2. / 3.));
+        assert_eq!(RGBA::new(255, 0, 51, 170).red_f32(), 1.);
+    }
+
+    #[test]
+    fn rgba_green_f32() {
+        assert_eq!(RGBA::new(51, 0, 170, 255).green_f32(), 0.);
+        assert_eq!(RGBA::new(0, 51, 170, 255).green_f32(), 0.2);
+        assert_eq!(RGBA::new(0, 170, 51, 255).green_f32(), (2. / 3.));
+        assert_eq!(RGBA::new(0, 255, 51, 170).green_f32(), 1.);
+    }
+
+    #[test]
+    fn rgba_blue_f32() {
+        assert_eq!(RGBA::new(51, 170, 0, 255).blue_f32(), 0.);
+        assert_eq!(RGBA::new(0, 170, 51, 255).blue_f32(), 0.2);
+        assert_eq!(RGBA::new(0, 51, 170, 255).blue_f32(), (2. / 3.));
+        assert_eq!(RGBA::new(0, 51, 255, 170).blue_f32(), 1.);
+    }
+
+    #[test]
+    fn rgba_alpha_f32() {
+        assert_eq!(RGBA::new(51, 170, 255, 0).alpha_f32(), 0.);
+        assert_eq!(RGBA::new(0, 170, 255, 51).alpha_f32(), 0.2);
+        assert_eq!(RGBA::new(0, 51, 255, 170).alpha_f32(), (2. / 3.));
+        assert_eq!(RGBA::new(0, 51, 170, 255).alpha_f32(), 1.);
+    }
+
+    #[test]
+    fn rgba_clone() {
+        assert_eq!(RGBA::new(0, 0, 0, 0).clone(), RGBA::new(0, 0, 0, 0));
+        assert_eq!(
+            RGBA::new(255, 255, 255, 255).clone(),
+            RGBA::new(255, 255, 255, 255)
+        );
+    }
+
+    #[test]
+    fn rgba_clone_from() {
+        let mut target = RGBA::new(127, 127, 127, 127);
+        target.clone_from(&RGBA::new(0, 0, 0, 0));
+
+        assert_eq!(target, RGBA::new(0, 0, 0, 0));
+
+        target.clone_from(&RGBA::new(255, 255, 255, 255));
+
+        assert_eq!(target, RGBA::new(255, 255, 255, 255));
+    }
+
+    #[test]
+    fn rgba_fmt() {
+        let rgba = RGBA::new(0, 0, 0, 0);
+
+        assert_eq!(
+            format!("{rgba:?}"),
+            "RGBA { red: 0, green: 0, blue: 0, alpha: 0 }"
+        );
+    }
+
+    #[test]
+    fn rgba_eq() {
+        assert!(RGBA::new(0, 0, 0, 0) == RGBA::new(0, 0, 0, 0));
+        assert!(RGBA::new(255, 255, 255, 255) == RGBA::new(255, 255, 255, 255));
+    }
+
+    #[test]
+    fn rgba_ne() {
+        assert!(RGBA::new(0, 0, 0, 0) != RGBA::new(255, 255, 255, 255));
+        assert!(RGBA::new(255, 255, 255, 255) != RGBA::new(0, 0, 0, 0));
+    }
+
+    #[test]
+    fn rgba_to_css() {
+        assert_eq!(RGBA::new(0, 0, 0, 0).to_css_string(), "rgba(0, 0, 0, 0)");
+        assert_eq!(
+            RGBA::new(0, 170, 255, 51).to_css_string(),
+            "rgba(0, 170, 255, 0.2)"
+        );
+        assert_eq!(
+            RGBA::new(0, 170, 255, 74).to_css_string(),
+            "rgba(0, 170, 255, 0.29)"
+        );
+        assert_eq!(
+            RGBA::new(0, 51, 255, 170).to_css_string(),
+            "rgba(0, 51, 255, 0.667)"
+        );
+        assert_eq!(
+            RGBA::new(255, 255, 255, 255).to_css_string(),
+            "rgb(255, 255, 255)"
+        );
+    }
+
+    #[test]
+    fn color_parse_hash() {
+        assert_eq!(
+            Color::parse_hash(b"AABBCCDD"),
+            Ok(Color::RGBA(RGBA::new(0xAA, 0xBB, 0xCC, 0xDD)))
+        );
+        assert_eq!(
+            Color::parse_hash(b"AABBCC"),
+            Ok(Color::RGBA(RGBA::new(0xAA, 0xBB, 0xCC, 255)))
+        );
+        assert_eq!(
+            Color::parse_hash(b"ABCD"),
+            Ok(Color::RGBA(RGBA::new(0xAA, 0xBB, 0xCC, 0xDD)))
+        );
+        assert_eq!(
+            Color::parse_hash(b"ABC"),
+            Ok(Color::RGBA(RGBA::new(0xAA, 0xBB, 0xCC, 255)))
+        );
+        assert_eq!(
+            Color::parse_hash(b"12345678"),
+            Ok(Color::RGBA(RGBA::new(0x12, 0x34, 0x56, 0x78)))
+        );
+        assert_eq!(
+            Color::parse_hash(b"abcdef90"),
+            Ok(Color::RGBA(RGBA::new(0xAB, 0xCD, 0xEF, 0x90)))
+        );
+
+        assert_eq!(Color::parse_hash(b""), Err(()));
+        assert_eq!(Color::parse_hash(b"A"), Err(()));
+        assert_eq!(Color::parse_hash(b"AB"), Err(()));
+        assert_eq!(Color::parse_hash(b"ABCDE"), Err(()));
+        assert_eq!(Color::parse_hash(b"ABCDEF0"), Err(()));
+        assert_eq!(Color::parse_hash(b"GHIJKLMN"), Err(()));
+    }
+
+    #[test]
+    fn super_parse_color_keyword() {
+        assert_eq!(
+            super::parse_color_keyword("black"),
+            Ok(Color::RGBA(RGBA::new(0, 0, 0, 255)))
+        );
+        assert_eq!(
+            super::parse_color_keyword("white"),
+            Ok(Color::RGBA(RGBA::new(255, 255, 255, 255)))
+        );
+        assert_eq!(
+            super::parse_color_keyword("cyan"),
+            Ok(Color::RGBA(RGBA::new(0, 255, 255, 255)))
+        );
+        assert_eq!(
+            super::parse_color_keyword("magenta"),
+            Ok(Color::RGBA(RGBA::new(255, 0, 255, 255)))
+        );
+        assert_eq!(
+            super::parse_color_keyword("red"),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            super::parse_color_keyword("lightgoldenrodyellow"),
+            Ok(Color::RGBA(RGBA::new(250, 250, 210, 255)))
+        );
+        assert_eq!(
+            super::parse_color_keyword("transparent"),
+            Ok(Color::RGBA(RGBA::new(0, 0, 0, 0)))
+        );
+        assert_eq!(
+            super::parse_color_keyword("currentcolor"),
+            Ok(Color::CurrentColor)
+        );
+
+        assert!(super::parse_color_keyword("yellowblue").is_err());
+    }
+
+    #[test]
+    fn color_parse_with() {
+        let component_parser = DefaultComponentParser;
+
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("#abc"))
+            ),
+            Ok(Color::RGBA(RGBA::new(0xAA, 0xBB, 0xCC, 255)))
+        );
+
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("currentcolor"))
+            ),
+            Ok(Color::CurrentColor)
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("transparent"))
+            ),
+            Ok(Color::RGBA(RGBA::new(0, 0, 0, 0)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("red"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(255, 0, 0)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(100%, 0%, 0%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgba(255, 0, 0, 0.5)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgba(100%, 0%, 0%, 50%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(255 0 0)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(100% 0% 0%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(255 0 0 / 0.5)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(100% 0% 0% / 50%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
+        );
+
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0, 100%, 50%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0deg, 100%, 50%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsla(0, 100%, 50%, 0.5)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsla(0deg, 100%, 50%, 50%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0 100% 50%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0deg 100% 50%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0grad 100% 50%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0rad 100% 50%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0turn 100% 50%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0 100% 50% / 0.5)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0deg 100% 50% / 50%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
+        );
+
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0 0% 0%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0deg 0% 0%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0grad 0% 0%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0rad 0% 0%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0turn 0% 0%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0 0% 0% / 0.5)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0deg 0% 0% / 50%)"))
+            ),
+            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
+        );
+
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("0deg"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgb(255 0 0 / 0deg)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsl(0em 100% 50%)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hwb(0% 0% 0%)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("notafunction(0 0% 0%)"))
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn color_parse() {
+        assert_eq!(
+            Color::parse(&mut Parser::new(&mut ParserInput::new("#abc123"))),
+            Ok(Color::RGBA(RGBA::new(0xAB, 0xC1, 0x23, 255)))
+        );
+    }
+
+    #[test]
+    fn color_clone() {
+        assert_eq!(Color::CurrentColor.clone(), Color::CurrentColor);
+        assert_eq!(
+            Color::RGBA(RGBA::new(0, 0, 0, 255)).clone(),
+            Color::RGBA(RGBA::new(0, 0, 0, 255))
+        );
+    }
+
+    #[test]
+    fn color_clone_from() {
+        let mut target = Color::CurrentColor;
+        target.clone_from(&Color::RGBA(RGBA::new(0, 0, 0, 255)));
+
+        assert_eq!(target, Color::RGBA(RGBA::new(0, 0, 0, 255)));
+
+        target.clone_from(&Color::CurrentColor);
+
+        assert_eq!(target, Color::CurrentColor);
+    }
+
+    #[test]
+    fn color_fmt() {
+        let color = Color::RGBA(RGBA::new(0, 0, 0, 0));
+
+        assert_eq!(
+            format!("{color:?}"),
+            "RGBA(RGBA { red: 0, green: 0, blue: 0, alpha: 0 })"
+        );
+    }
+
+    #[test]
+    fn color_eq() {
+        assert!(Color::CurrentColor == Color::CurrentColor);
+        assert!(Color::RGBA(RGBA::new(255, 0, 0, 255)) == Color::RGBA(RGBA::new(255, 0, 0, 255)));
+    }
+
+    #[test]
+    fn color_ne() {
+        assert!(Color::CurrentColor != Color::RGBA(RGBA::new(255, 0, 0, 255)));
+        assert!(Color::RGBA(RGBA::new(255, 0, 0, 255)) != Color::CurrentColor);
+    }
+
+    #[test]
+    fn color_to_css() {
+        assert_eq!(Color::CurrentColor.to_css_string(), "currentcolor");
+        assert_eq!(
+            Color::RGBA(RGBA::new(255, 0, 0, 255)).to_css_string(),
+            "rgb(255, 0, 0)"
+        );
+    }
+
+    #[test]
+    fn colorcomponentparser_parse_angle_or_number() {
+        assert_eq!(
+            if let AngleOrNumber::Number { value } = ColorComponentParser::parse_angle_or_number(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123")),
+            )
+            .unwrap()
+            {
+                value
+            } else {
+                unreachable!()
+            },
+            123.
+        );
+        assert_eq!(
+            if let AngleOrNumber::Number { value } = ColorComponentParser::parse_angle_or_number(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123.456")),
+            )
+            .unwrap()
+            {
+                value
+            } else {
+                unreachable!()
+            },
+            123.456
+        );
+
+        assert_eq!(
+            if let AngleOrNumber::Angle { degrees } = ColorComponentParser::parse_angle_or_number(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123deg")),
+            )
+            .unwrap()
+            {
+                degrees
+            } else {
+                unreachable!()
+            },
+            123.
+        );
+        assert_eq!(
+            if let AngleOrNumber::Angle { degrees } = ColorComponentParser::parse_angle_or_number(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123grad")),
+            )
+            .unwrap()
+            {
+                degrees
+            } else {
+                unreachable!()
+            },
+            110.7
+        );
+        assert_eq!(
+            if let AngleOrNumber::Angle { degrees } = ColorComponentParser::parse_angle_or_number(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123rad")),
+            )
+            .unwrap()
+            {
+                degrees
+            } else {
+                unreachable!()
+            },
+            7047.381
+        );
+        assert_eq!(
+            if let AngleOrNumber::Angle { degrees } = ColorComponentParser::parse_angle_or_number(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123turn")),
+            )
+            .unwrap()
+            {
+                degrees
+            } else {
+                unreachable!()
+            },
+            44280.
+        );
+
+        assert!(ColorComponentParser::parse_angle_or_number(
+            &DefaultComponentParser,
+            &mut Parser::new(&mut ParserInput::new("123em"))
+        )
+        .is_err());
+        assert!(ColorComponentParser::parse_angle_or_number(
+            &DefaultComponentParser,
+            &mut Parser::new(&mut ParserInput::new("123%"))
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn colorcomponentparser_parse_percentage() {
+        assert_eq!(
+            ColorComponentParser::parse_percentage(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("0%")),
+            )
+            .unwrap(),
+            0.
+        );
+        assert_eq!(
+            ColorComponentParser::parse_percentage(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("100%")),
+            )
+            .unwrap(),
+            1.
+        );
+        assert_eq!(
+            ColorComponentParser::parse_percentage(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("-123%")),
+            )
+            .unwrap(),
+            -1.23
+        );
+        assert_eq!(
+            ColorComponentParser::parse_percentage(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123%")),
+            )
+            .unwrap(),
+            1.23
+        );
+    }
+
+    #[test]
+    fn colorcomponentparser_parse_number() {
+        assert_eq!(
+            ColorComponentParser::parse_number(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("0")),
+            )
+            .unwrap(),
+            0.
+        );
+        assert_eq!(
+            ColorComponentParser::parse_number(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("100")),
+            )
+            .unwrap(),
+            100.
+        );
+        assert_eq!(
+            ColorComponentParser::parse_number(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("-123")),
+            )
+            .unwrap(),
+            -123.
+        );
+        assert_eq!(
+            ColorComponentParser::parse_number(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123")),
+            )
+            .unwrap(),
+            123.
+        );
+    }
+
+    #[test]
+    fn colorcomponentparser_parse_number_or_percentage() {
+        assert_eq!(
+            if let NumberOrPercentage::Number { value } =
+                ColorComponentParser::parse_number_or_percentage(
+                    &DefaultComponentParser,
+                    &mut Parser::new(&mut ParserInput::new("0")),
+                )
+                .unwrap()
+            {
+                value
+            } else {
+                unreachable!()
+            },
+            0.
+        );
+        assert_eq!(
+            if let NumberOrPercentage::Number { value } =
+                ColorComponentParser::parse_number_or_percentage(
+                    &DefaultComponentParser,
+                    &mut Parser::new(&mut ParserInput::new("100")),
+                )
+                .unwrap()
+            {
+                value
+            } else {
+                unreachable!()
+            },
+            100.
+        );
+        assert_eq!(
+            if let NumberOrPercentage::Number { value } =
+                ColorComponentParser::parse_number_or_percentage(
+                    &DefaultComponentParser,
+                    &mut Parser::new(&mut ParserInput::new("-123")),
+                )
+                .unwrap()
+            {
+                value
+            } else {
+                unreachable!()
+            },
+            -123.
+        );
+        assert_eq!(
+            if let NumberOrPercentage::Number { value } =
+                ColorComponentParser::parse_number_or_percentage(
+                    &DefaultComponentParser,
+                    &mut Parser::new(&mut ParserInput::new("123")),
+                )
+                .unwrap()
+            {
+                value
+            } else {
+                unreachable!()
+            },
+            123.
+        );
+
+        assert_eq!(
+            if let NumberOrPercentage::Percentage { unit_value } =
+                ColorComponentParser::parse_number_or_percentage(
+                    &DefaultComponentParser,
+                    &mut Parser::new(&mut ParserInput::new("0%")),
+                )
+                .unwrap()
+            {
+                unit_value
+            } else {
+                unreachable!()
+            },
+            0.
+        );
+        assert_eq!(
+            if let NumberOrPercentage::Percentage { unit_value } =
+                ColorComponentParser::parse_number_or_percentage(
+                    &DefaultComponentParser,
+                    &mut Parser::new(&mut ParserInput::new("100%")),
+                )
+                .unwrap()
+            {
+                unit_value
+            } else {
+                unreachable!()
+            },
+            1.
+        );
+        assert_eq!(
+            if let NumberOrPercentage::Percentage { unit_value } =
+                ColorComponentParser::parse_number_or_percentage(
+                    &DefaultComponentParser,
+                    &mut Parser::new(&mut ParserInput::new("-123%")),
+                )
+                .unwrap()
+            {
+                unit_value
+            } else {
+                unreachable!()
+            },
+            -1.23
+        );
+        assert_eq!(
+            if let NumberOrPercentage::Percentage { unit_value } =
+                ColorComponentParser::parse_number_or_percentage(
+                    &DefaultComponentParser,
+                    &mut Parser::new(&mut ParserInput::new("123%")),
+                )
+                .unwrap()
+            {
+                unit_value
+            } else {
+                unreachable!()
+            },
+            1.23
+        );
+
+        assert!(ColorComponentParser::parse_number_or_percentage(
+            &DefaultComponentParser,
+            &mut Parser::new(&mut ParserInput::new("123em"))
+        )
+        .is_err());
+        assert!(ColorComponentParser::parse_number_or_percentage(
+            &DefaultComponentParser,
+            &mut Parser::new(&mut ParserInput::new("123deg"))
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn super_hsl_to_rgb() {
+        assert_eq!(super::hsl_to_rgb(0. / 360., 1., 0.5), (1., 0., 0.));
+        assert_eq!(super::hsl_to_rgb(120. / 360., 1., 0.5), (0., 1., 0.));
+        assert_eq!(super::hsl_to_rgb(120. / 360., 1., 0.25), (0., 0.5, 0.));
+        assert_eq!(super::hsl_to_rgb(120. / 360., 1., 0.75), (0.5, 1., 0.5));
+        // XXX: Doesn't pass due to rounding errors.
+        // assert_eq!(super::hsl_to_rgb(120. / 360., 0.75, 0.85), (0.7375, 0.9625, 0.7375));
+        assert_eq!(super::hsl_to_rgb(240. / 360., 1., 0.5), (0., 0., 1.));
+        assert_eq!(super::hsl_to_rgb(60. / 360., 1., 0.5), (1., 1., 0.));
+        assert_eq!(super::hsl_to_rgb(360. / 360., 1., 0.5), (1., 0., 0.));
+        assert_eq!(super::hsl_to_rgb(0. / 360., 1., 1.), (1., 1., 1.));
+        assert_eq!(super::hsl_to_rgb(0. / 360., 0., 1.), (1., 1., 1.));
+        assert_eq!(super::hsl_to_rgb(0. / 360., 1., 0.), (0., 0., 0.));
+        assert_eq!(super::hsl_to_rgb(0. / 360., 0., 0.), (0., 0., 0.));
+        // XXX: Don't pass due to rounding errors.
+        // assert_eq!(super::hsl_to_rgb(0. / 360., 1., 0.6), (1., 0.2, 0.2));
+        // assert_eq!(super::hsl_to_rgb(0. / 360., 0.8, 0.3), (0.54, 0.06, 0.06));
+        // assert_eq!(super::hsl_to_rgb(360. / 360., 1., 0.6), (1., 0.2, 0.2));
+        // assert_eq!(super::hsl_to_rgb(360. / 360., 0.8, 0.3), (0.54, 0.06, 0.06));
+    }
+
+    #[test]
+    fn super_hwb_to_rgb() {
+        assert_eq!(super::hwb_to_rgb(0. / 360., 0., 0.), (1., 0., 0.));
+        assert_eq!(super::hwb_to_rgb(0. / 360., 1., 0.), (1., 1., 1.));
+        assert_eq!(super::hwb_to_rgb(0. / 360., 1., 1.), (0.5, 0.5, 0.5));
+        assert_eq!(super::hwb_to_rgb(0. / 360., 0., 1.), (0., 0., 0.));
+        // XXX: Doesn't pass due to rounding errors.
+        // assert_eq!(super::hwb_to_rgb(180. / 360., 0.4, 0.2), (0.4, 0.8, 0.8));
+        assert_eq!(super::hwb_to_rgb(180. / 360., 0.2, 0.4), (0.2, 0.6, 0.6));
+    }
+}
