@@ -152,35 +152,6 @@ impl ToCss for Color {
     }
 }
 
-/// Either a number or a percentage.
-pub enum NumberOrPercentage {
-    /// `<number>`.
-    Number {
-        /// The numeric value parsed, as a float.
-        value: f32,
-    },
-    /// `<percentage>`
-    Percentage {
-        /// The value as a float, divided by 100 so that the nominal range is
-        /// 0.0 to 1.0.
-        unit_value: f32,
-    },
-}
-
-/// Either an angle or a number.
-pub enum AngleOrNumber {
-    /// `<number>`.
-    Number {
-        /// The numeric value parsed, as a float.
-        value: f32,
-    },
-    /// `<angle>`
-    Angle {
-        /// The value as a number of degrees.
-        degrees: f32,
-    },
-}
-
 /// https://w3c.github.io/csswg-drafts/css-color-4/#hue-syntax
 pub struct Hue {
     /// The value as a number of degrees.
@@ -201,33 +172,6 @@ pub trait ColorComponentParser<'i> {
     /// A custom error type that can be returned from the parsing functions.
     type Error: 'i;
 
-    /// Parse an `<angle>` or `<number>`.
-    ///
-    /// Returns the result in degrees.
-    fn parse_angle_or_number<'t>(
-        &self,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<AngleOrNumber, ParseError<'i, Self::Error>> {
-        let location = input.current_source_location();
-        Ok(match *input.next()? {
-            Token::Number { value, .. } => AngleOrNumber::Number { value },
-            Token::Dimension {
-                value: v, ref unit, ..
-            } => {
-                let degrees = match_ignore_ascii_case! { &*unit,
-                    "deg" => v,
-                    "grad" => v * 360. / 400.,
-                    "rad" => v * 360. / (2. * PI),
-                    "turn" => v * 360.,
-                    _ => return Err(location.new_unexpected_token_error(Token::Ident(unit.clone()))),
-                };
-
-                AngleOrNumber::Angle { degrees }
-            }
-            ref t => return Err(location.new_unexpected_token_error(t.clone())),
-        })
-    }
-
     /// Parse a `<percentage>` value.
     ///
     /// Returns the result in a number from 0.0 to 1.0.
@@ -244,19 +188,6 @@ pub trait ColorComponentParser<'i> {
         input: &mut Parser<'i, 't>,
     ) -> Result<f32, ParseError<'i, Self::Error>> {
         input.expect_number().map_err(From::from)
-    }
-
-    /// Parse a `<number>` value or a `<percentage>` value.
-    fn parse_number_or_percentage<'t>(
-        &self,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<NumberOrPercentage, ParseError<'i, Self::Error>> {
-        let location = input.current_source_location();
-        Ok(match *input.next()? {
-            Token::Number { value, .. } => NumberOrPercentage::Number { value },
-            Token::Percentage { unit_value, .. } => NumberOrPercentage::Percentage { unit_value },
-            ref t => return Err(location.new_unexpected_token_error(t.clone())),
-        })
     }
 
     /// Parse a `<hue>` value.
@@ -880,8 +811,8 @@ pub fn hsl_to_rgb(hue: f32, saturation: f32, lightness: f32) -> (f32, f32, f32) 
 #[cfg(test)]
 mod tests {
     use crate::{
-        color::DefaultComponentParser, AngleOrNumber, Color, ColorComponentParser,
-        NumberOrPercentage, Parser, ParserInput, ToCss, RGBA,
+        color::DefaultComponentParser, Color, ColorComponentParser, Parser, ParserInput, ToCss,
+        RGBA,
     };
 
     #[test]
@@ -1466,100 +1397,6 @@ mod tests {
     }
 
     #[test]
-    fn colorcomponentparser_parse_angle_or_number() {
-        assert_eq!(
-            if let AngleOrNumber::Number { value } = ColorComponentParser::parse_angle_or_number(
-                &DefaultComponentParser,
-                &mut Parser::new(&mut ParserInput::new("123")),
-            )
-            .unwrap()
-            {
-                value
-            } else {
-                unreachable!()
-            },
-            123.
-        );
-        assert_eq!(
-            if let AngleOrNumber::Number { value } = ColorComponentParser::parse_angle_or_number(
-                &DefaultComponentParser,
-                &mut Parser::new(&mut ParserInput::new("123.456")),
-            )
-            .unwrap()
-            {
-                value
-            } else {
-                unreachable!()
-            },
-            123.456
-        );
-
-        assert_eq!(
-            if let AngleOrNumber::Angle { degrees } = ColorComponentParser::parse_angle_or_number(
-                &DefaultComponentParser,
-                &mut Parser::new(&mut ParserInput::new("123deg")),
-            )
-            .unwrap()
-            {
-                degrees
-            } else {
-                unreachable!()
-            },
-            123.
-        );
-        assert_eq!(
-            if let AngleOrNumber::Angle { degrees } = ColorComponentParser::parse_angle_or_number(
-                &DefaultComponentParser,
-                &mut Parser::new(&mut ParserInput::new("123grad")),
-            )
-            .unwrap()
-            {
-                degrees
-            } else {
-                unreachable!()
-            },
-            110.7
-        );
-        assert_eq!(
-            if let AngleOrNumber::Angle { degrees } = ColorComponentParser::parse_angle_or_number(
-                &DefaultComponentParser,
-                &mut Parser::new(&mut ParserInput::new("123rad")),
-            )
-            .unwrap()
-            {
-                degrees
-            } else {
-                unreachable!()
-            },
-            7047.381
-        );
-        assert_eq!(
-            if let AngleOrNumber::Angle { degrees } = ColorComponentParser::parse_angle_or_number(
-                &DefaultComponentParser,
-                &mut Parser::new(&mut ParserInput::new("123turn")),
-            )
-            .unwrap()
-            {
-                degrees
-            } else {
-                unreachable!()
-            },
-            44280.
-        );
-
-        assert!(ColorComponentParser::parse_angle_or_number(
-            &DefaultComponentParser,
-            &mut Parser::new(&mut ParserInput::new("123em"))
-        )
-        .is_err());
-        assert!(ColorComponentParser::parse_angle_or_number(
-            &DefaultComponentParser,
-            &mut Parser::new(&mut ParserInput::new("123%"))
-        )
-        .is_err());
-    }
-
-    #[test]
     fn colorcomponentparser_parse_percentage() {
         assert_eq!(
             ColorComponentParser::parse_percentage(
@@ -1629,134 +1466,6 @@ mod tests {
             .unwrap(),
             123.
         );
-    }
-
-    #[test]
-    fn colorcomponentparser_parse_number_or_percentage() {
-        assert_eq!(
-            if let NumberOrPercentage::Number { value } =
-                ColorComponentParser::parse_number_or_percentage(
-                    &DefaultComponentParser,
-                    &mut Parser::new(&mut ParserInput::new("0")),
-                )
-                .unwrap()
-            {
-                value
-            } else {
-                unreachable!()
-            },
-            0.
-        );
-        assert_eq!(
-            if let NumberOrPercentage::Number { value } =
-                ColorComponentParser::parse_number_or_percentage(
-                    &DefaultComponentParser,
-                    &mut Parser::new(&mut ParserInput::new("100")),
-                )
-                .unwrap()
-            {
-                value
-            } else {
-                unreachable!()
-            },
-            100.
-        );
-        assert_eq!(
-            if let NumberOrPercentage::Number { value } =
-                ColorComponentParser::parse_number_or_percentage(
-                    &DefaultComponentParser,
-                    &mut Parser::new(&mut ParserInput::new("-123")),
-                )
-                .unwrap()
-            {
-                value
-            } else {
-                unreachable!()
-            },
-            -123.
-        );
-        assert_eq!(
-            if let NumberOrPercentage::Number { value } =
-                ColorComponentParser::parse_number_or_percentage(
-                    &DefaultComponentParser,
-                    &mut Parser::new(&mut ParserInput::new("123")),
-                )
-                .unwrap()
-            {
-                value
-            } else {
-                unreachable!()
-            },
-            123.
-        );
-
-        assert_eq!(
-            if let NumberOrPercentage::Percentage { unit_value } =
-                ColorComponentParser::parse_number_or_percentage(
-                    &DefaultComponentParser,
-                    &mut Parser::new(&mut ParserInput::new("0%")),
-                )
-                .unwrap()
-            {
-                unit_value
-            } else {
-                unreachable!()
-            },
-            0.
-        );
-        assert_eq!(
-            if let NumberOrPercentage::Percentage { unit_value } =
-                ColorComponentParser::parse_number_or_percentage(
-                    &DefaultComponentParser,
-                    &mut Parser::new(&mut ParserInput::new("100%")),
-                )
-                .unwrap()
-            {
-                unit_value
-            } else {
-                unreachable!()
-            },
-            1.
-        );
-        assert_eq!(
-            if let NumberOrPercentage::Percentage { unit_value } =
-                ColorComponentParser::parse_number_or_percentage(
-                    &DefaultComponentParser,
-                    &mut Parser::new(&mut ParserInput::new("-123%")),
-                )
-                .unwrap()
-            {
-                unit_value
-            } else {
-                unreachable!()
-            },
-            -1.23
-        );
-        assert_eq!(
-            if let NumberOrPercentage::Percentage { unit_value } =
-                ColorComponentParser::parse_number_or_percentage(
-                    &DefaultComponentParser,
-                    &mut Parser::new(&mut ParserInput::new("123%")),
-                )
-                .unwrap()
-            {
-                unit_value
-            } else {
-                unreachable!()
-            },
-            1.23
-        );
-
-        assert!(ColorComponentParser::parse_number_or_percentage(
-            &DefaultComponentParser,
-            &mut Parser::new(&mut ParserInput::new("123em"))
-        )
-        .is_err());
-        assert!(ColorComponentParser::parse_number_or_percentage(
-            &DefaultComponentParser,
-            &mut Parser::new(&mut ParserInput::new("123deg"))
-        )
-        .is_err());
     }
 
     #[test]
