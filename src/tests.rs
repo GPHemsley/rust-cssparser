@@ -9,7 +9,10 @@ use encoding_rs;
 use matches::matches;
 use serde_json::{self, json, Map, Value};
 
-use crate::color::{CurrentColor, SrgbColor};
+use crate::{
+    color::{CurrentColor, SrgbColor},
+    DeprecatedColor, NamedColor,
+};
 
 #[cfg(feature = "bench")]
 use self::test::Bencher;
@@ -833,10 +836,19 @@ where
 impl ToJson for Color {
     fn to_json(&self) -> Value {
         match *self {
-            Color::SrgbColor(ref srgb_color) => {
+            Color::SrgbColor(ref srgb_color)
+            | Color::NamedColor(NamedColor {
+                value: ref srgb_color,
+                ..
+            }) => {
                 let rgba = srgb_color.to_rgba();
                 json!([rgba.red, rgba.green, rgba.blue, rgba.alpha])
             }
+            Color::SystemColor(ref system_color)
+            | Color::DeprecatedColor(DeprecatedColor {
+                same_as: ref system_color,
+                ..
+            }) => system_color.name.to_json(),
             Color::CurrentColor(CurrentColor) => "currentcolor".to_json(),
         }
     }

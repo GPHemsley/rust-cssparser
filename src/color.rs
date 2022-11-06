@@ -5,6 +5,8 @@
 use std::f64::consts::PI;
 use std::fmt;
 
+use crate::CowRcStr;
+
 use super::{BasicParseError, ParseError, Parser, ToCss, Token};
 
 #[cfg(feature = "serde")]
@@ -310,22 +312,22 @@ impl ToCss for SrgbColor {
 }
 
 /// https://w3c.github.io/csswg-drafts/css-color-4/#named-colors
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct NamedColor<'a> {
+#[derive(Clone, PartialEq, Debug)]
+pub struct NamedColor {
     /// The name of the color.
-    pub name: &'a str,
+    pub name: String,
     /// The corresponding sRGB color value.
     pub value: SrgbColor,
 }
 
-impl<'a> NamedColor<'a> {
+impl NamedColor {
     /// Construct a named color.
-    pub fn new(name: &'a str, value: SrgbColor) -> Self {
+    pub fn new(name: String, value: SrgbColor) -> Self {
         Self { name, value }
     }
 }
 
-impl<'a> ToCss for NamedColor<'a> {
+impl ToCss for NamedColor {
     fn to_css<W>(&self, dest: &mut W) -> fmt::Result
     where
         W: fmt::Write,
@@ -335,31 +337,31 @@ impl<'a> ToCss for NamedColor<'a> {
 }
 
 /// https://w3c.github.io/csswg-drafts/css-color-4/#css-system-colors
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct SystemColor<'a> {
+#[derive(Clone, PartialEq, Debug)]
+pub struct SystemColor {
     /// The name of the color.
-    pub name: &'a str,
+    pub name: String,
 }
 
-impl<'a> SystemColor<'a> {
+impl SystemColor {
     /// Construct a system color.
-    pub fn new(name: &'a str) -> Self {
+    pub fn new(name: String) -> Self {
         Self { name }
     }
 }
 
 /// https://w3c.github.io/csswg-drafts/css-color-4/#deprecated-system-colors
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct DeprecatedColor<'a> {
+#[derive(Clone, PartialEq, Debug)]
+pub struct DeprecatedColor {
     /// The name of the deprecated color alias.
-    pub name: &'a str,
+    pub name: String,
     /// The corresponding system color.
-    pub same_as: SystemColor<'a>,
+    pub same_as: SystemColor,
 }
 
-impl<'a> DeprecatedColor<'a> {
+impl DeprecatedColor {
     /// Construct a deprecated color.
-    pub fn new(name: &'a str, same_as: SystemColor<'a>) -> Self {
+    pub fn new(name: String, same_as: SystemColor) -> Self {
         Self { name, same_as }
     }
 }
@@ -379,13 +381,16 @@ impl ToCss for CurrentColor {
 
 /// A <color> value.
 /// https://w3c.github.io/csswg-drafts/css-color-4/#color-syntax
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Color /*<'a>*/ {
+#[derive(Clone, PartialEq, Debug)]
+pub enum Color {
     /// An sRGB color
     SrgbColor(SrgbColor),
-    /*NamedColor(NamedColor<'a>),
-    SystemColor(SystemColor<'a>),
-    DeprecatedColor(DeprecatedColor<'a>),*/
+    /// A named color
+    NamedColor(NamedColor),
+    /// A system color
+    SystemColor(SystemColor),
+    /// A deprecated color
+    DeprecatedColor(DeprecatedColor),
     /// The 'currentcolor' keyword
     CurrentColor(CurrentColor),
 }
@@ -478,17 +483,15 @@ impl Color {
     pub fn parse_with<'i, 't, ComponentParser>(
         component_parser: &ComponentParser,
         input: &mut Parser<'i, 't>,
-    ) -> Result<Color, ParseError<'i, ComponentParser::Error>>
+    ) -> Result<Self, ParseError<'i, ComponentParser::Error>>
     where
         ComponentParser: ColorComponentParser<'i>,
     {
         let location = input.current_source_location();
         let token = input.next()?;
         match *token {
-            Token::Hash(ref value) | Token::IDHash(ref value) => {
-                Color::parse_hash(value.as_bytes())
-            }
-            Token::Ident(ref value) => parse_color_keyword(&*value),
+            Token::Hash(ref value) | Token::IDHash(ref value) => Self::parse_hex_color(&*value),
+            Token::Ident(ref value) => Self::parse_color_keyword(&*value),
             Token::Function(ref name) => {
                 let name = name.clone();
                 return input.parse_nested_block(|arguments| {
@@ -501,14 +504,26 @@ impl Color {
     }
 
     /// Parse a <color> value, per CSS Color Module Level 3.
-    pub fn parse<'i, 't>(input: &mut Parser<'i, 't>) -> Result<Color, BasicParseError<'i>> {
+    pub fn parse<'i, 't>(input: &mut Parser<'i, 't>) -> Result<Self, BasicParseError<'i>> {
         let component_parser = DefaultComponentParser;
         Self::parse_with(&component_parser, input).map_err(ParseError::basic)
     }
 
-    /// Parse a color hash, without the leading '#' character.
+    /// Parse a `<hex-color>` value.
     #[inline]
-    pub fn parse_hash(value: &[u8]) -> Result<Self, ()> {
+    pub fn parse_hex_color(value: &str) -> Result<Self, ()> {
+        #[inline]
+        fn from_hex(c: u8) -> Result<u8, ()> {
+            match c {
+                b'0'..=b'9' => Ok(c - b'0'),
+                b'a'..=b'f' => Ok(c - b'a' + 10),
+                b'A'..=b'F' => Ok(c - b'A' + 10),
+                _ => Err(()),
+            }
+        }
+
+        let value = value.as_bytes();
+
         match value.len() {
             8 => Ok(rgba(
                 from_hex(value[0])? * 16 + from_hex(value[1])?,
@@ -535,6 +550,231 @@ impl Color {
             _ => Err(()),
         }
     }
+
+    /// Return the named color with the given name.
+    ///
+    /// Matching is case-insensitive in the ASCII range.
+    /// CSS escaping (if relevant) should be resolved before calling this function.
+    /// (For example, the value of an `Ident` token is fine.)
+    ///
+    /// https://w3c.github.io/csswg-drafts/css-color-4/#color-keywords
+    #[inline]
+    pub fn parse_color_keyword(ident: &str) -> Result<Color, ()> {
+        macro_rules! rgb {
+            ($red: expr, $green: expr, $blue: expr) => {
+                RGBA {
+                    red: $red,
+                    green: $green,
+                    blue: $blue,
+                    alpha: 255,
+                }
+            };
+        }
+        ascii_case_insensitive_phf_map! {
+            rgba_from_named_color -> RGBA = {
+                "black" => rgb!(0, 0, 0),
+                "silver" => rgb!(192, 192, 192),
+                "gray" => rgb!(128, 128, 128),
+                "white" => rgb!(255, 255, 255),
+                "maroon" => rgb!(128, 0, 0),
+                "red" => rgb!(255, 0, 0),
+                "purple" => rgb!(128, 0, 128),
+                "fuchsia" => rgb!(255, 0, 255),
+                "green" => rgb!(0, 128, 0),
+                "lime" => rgb!(0, 255, 0),
+                "olive" => rgb!(128, 128, 0),
+                "yellow" => rgb!(255, 255, 0),
+                "navy" => rgb!(0, 0, 128),
+                "blue" => rgb!(0, 0, 255),
+                "teal" => rgb!(0, 128, 128),
+                "aqua" => rgb!(0, 255, 255),
+
+                "aliceblue" => rgb!(240, 248, 255),
+                "antiquewhite" => rgb!(250, 235, 215),
+                "aquamarine" => rgb!(127, 255, 212),
+                "azure" => rgb!(240, 255, 255),
+                "beige" => rgb!(245, 245, 220),
+                "bisque" => rgb!(255, 228, 196),
+                "blanchedalmond" => rgb!(255, 235, 205),
+                "blueviolet" => rgb!(138, 43, 226),
+                "brown" => rgb!(165, 42, 42),
+                "burlywood" => rgb!(222, 184, 135),
+                "cadetblue" => rgb!(95, 158, 160),
+                "chartreuse" => rgb!(127, 255, 0),
+                "chocolate" => rgb!(210, 105, 30),
+                "coral" => rgb!(255, 127, 80),
+                "cornflowerblue" => rgb!(100, 149, 237),
+                "cornsilk" => rgb!(255, 248, 220),
+                "crimson" => rgb!(220, 20, 60),
+                "cyan" => rgb!(0, 255, 255),
+                "darkblue" => rgb!(0, 0, 139),
+                "darkcyan" => rgb!(0, 139, 139),
+                "darkgoldenrod" => rgb!(184, 134, 11),
+                "darkgray" => rgb!(169, 169, 169),
+                "darkgreen" => rgb!(0, 100, 0),
+                "darkgrey" => rgb!(169, 169, 169),
+                "darkkhaki" => rgb!(189, 183, 107),
+                "darkmagenta" => rgb!(139, 0, 139),
+                "darkolivegreen" => rgb!(85, 107, 47),
+                "darkorange" => rgb!(255, 140, 0),
+                "darkorchid" => rgb!(153, 50, 204),
+                "darkred" => rgb!(139, 0, 0),
+                "darksalmon" => rgb!(233, 150, 122),
+                "darkseagreen" => rgb!(143, 188, 143),
+                "darkslateblue" => rgb!(72, 61, 139),
+                "darkslategray" => rgb!(47, 79, 79),
+                "darkslategrey" => rgb!(47, 79, 79),
+                "darkturquoise" => rgb!(0, 206, 209),
+                "darkviolet" => rgb!(148, 0, 211),
+                "deeppink" => rgb!(255, 20, 147),
+                "deepskyblue" => rgb!(0, 191, 255),
+                "dimgray" => rgb!(105, 105, 105),
+                "dimgrey" => rgb!(105, 105, 105),
+                "dodgerblue" => rgb!(30, 144, 255),
+                "firebrick" => rgb!(178, 34, 34),
+                "floralwhite" => rgb!(255, 250, 240),
+                "forestgreen" => rgb!(34, 139, 34),
+                "gainsboro" => rgb!(220, 220, 220),
+                "ghostwhite" => rgb!(248, 248, 255),
+                "gold" => rgb!(255, 215, 0),
+                "goldenrod" => rgb!(218, 165, 32),
+                "greenyellow" => rgb!(173, 255, 47),
+                "grey" => rgb!(128, 128, 128),
+                "honeydew" => rgb!(240, 255, 240),
+                "hotpink" => rgb!(255, 105, 180),
+                "indianred" => rgb!(205, 92, 92),
+                "indigo" => rgb!(75, 0, 130),
+                "ivory" => rgb!(255, 255, 240),
+                "khaki" => rgb!(240, 230, 140),
+                "lavender" => rgb!(230, 230, 250),
+                "lavenderblush" => rgb!(255, 240, 245),
+                "lawngreen" => rgb!(124, 252, 0),
+                "lemonchiffon" => rgb!(255, 250, 205),
+                "lightblue" => rgb!(173, 216, 230),
+                "lightcoral" => rgb!(240, 128, 128),
+                "lightcyan" => rgb!(224, 255, 255),
+                "lightgoldenrodyellow" => rgb!(250, 250, 210),
+                "lightgray" => rgb!(211, 211, 211),
+                "lightgreen" => rgb!(144, 238, 144),
+                "lightgrey" => rgb!(211, 211, 211),
+                "lightpink" => rgb!(255, 182, 193),
+                "lightsalmon" => rgb!(255, 160, 122),
+                "lightseagreen" => rgb!(32, 178, 170),
+                "lightskyblue" => rgb!(135, 206, 250),
+                "lightslategray" => rgb!(119, 136, 153),
+                "lightslategrey" => rgb!(119, 136, 153),
+                "lightsteelblue" => rgb!(176, 196, 222),
+                "lightyellow" => rgb!(255, 255, 224),
+                "limegreen" => rgb!(50, 205, 50),
+                "linen" => rgb!(250, 240, 230),
+                "magenta" => rgb!(255, 0, 255),
+                "mediumaquamarine" => rgb!(102, 205, 170),
+                "mediumblue" => rgb!(0, 0, 205),
+                "mediumorchid" => rgb!(186, 85, 211),
+                "mediumpurple" => rgb!(147, 112, 219),
+                "mediumseagreen" => rgb!(60, 179, 113),
+                "mediumslateblue" => rgb!(123, 104, 238),
+                "mediumspringgreen" => rgb!(0, 250, 154),
+                "mediumturquoise" => rgb!(72, 209, 204),
+                "mediumvioletred" => rgb!(199, 21, 133),
+                "midnightblue" => rgb!(25, 25, 112),
+                "mintcream" => rgb!(245, 255, 250),
+                "mistyrose" => rgb!(255, 228, 225),
+                "moccasin" => rgb!(255, 228, 181),
+                "navajowhite" => rgb!(255, 222, 173),
+                "oldlace" => rgb!(253, 245, 230),
+                "olivedrab" => rgb!(107, 142, 35),
+                "orange" => rgb!(255, 165, 0),
+                "orangered" => rgb!(255, 69, 0),
+                "orchid" => rgb!(218, 112, 214),
+                "palegoldenrod" => rgb!(238, 232, 170),
+                "palegreen" => rgb!(152, 251, 152),
+                "paleturquoise" => rgb!(175, 238, 238),
+                "palevioletred" => rgb!(219, 112, 147),
+                "papayawhip" => rgb!(255, 239, 213),
+                "peachpuff" => rgb!(255, 218, 185),
+                "peru" => rgb!(205, 133, 63),
+                "pink" => rgb!(255, 192, 203),
+                "plum" => rgb!(221, 160, 221),
+                "powderblue" => rgb!(176, 224, 230),
+                "rebeccapurple" => rgb!(102, 51, 153),
+                "rosybrown" => rgb!(188, 143, 143),
+                "royalblue" => rgb!(65, 105, 225),
+                "saddlebrown" => rgb!(139, 69, 19),
+                "salmon" => rgb!(250, 128, 114),
+                "sandybrown" => rgb!(244, 164, 96),
+                "seagreen" => rgb!(46, 139, 87),
+                "seashell" => rgb!(255, 245, 238),
+                "sienna" => rgb!(160, 82, 45),
+                "skyblue" => rgb!(135, 206, 235),
+                "slateblue" => rgb!(106, 90, 205),
+                "slategray" => rgb!(112, 128, 144),
+                "slategrey" => rgb!(112, 128, 144),
+                "snow" => rgb!(255, 250, 250),
+                "springgreen" => rgb!(0, 255, 127),
+                "steelblue" => rgb!(70, 130, 180),
+                "tan" => rgb!(210, 180, 140),
+                "thistle" => rgb!(216, 191, 216),
+                "tomato" => rgb!(255, 99, 71),
+                "turquoise" => rgb!(64, 224, 208),
+                "violet" => rgb!(238, 130, 238),
+                "wheat" => rgb!(245, 222, 179),
+                "whitesmoke" => rgb!(245, 245, 245),
+                "yellowgreen" => rgb!(154, 205, 50),
+
+                "transparent" => RGBA { red: 0, green: 0, blue: 0, alpha: 0 },
+            }
+        }
+
+        ascii_case_insensitive_phf_map! {
+            same_as_from_deprecated_color -> &'static str = {
+                "activeborder" => "buttonborder",
+                "activecaption" => "canvastext",
+                "appworkspace" => "canvas",
+                "background" => "canvas",
+                "buttonhighlight" => "buttonface",
+                "buttonshadow" => "buttonface",
+                "captiontext" => "canvastext",
+                "inactiveborder" => "buttonborder",
+                "inactivecaption" => "canvas",
+                "inactivecaptiontext" => "graytext",
+                "infobackground" => "canvas",
+                "infotext" => "canvastext",
+                "menu" => "canvas",
+                "menutext" => "canvastext",
+                "scrollbar" => "canvas",
+                "threeddarkshadow" => "buttonborder",
+                "threedface" => "buttonface",
+                "threedhighlight" => "buttonborder",
+                "threedlightshadow" => "buttonborder",
+                "threedshadow" => "buttonborder",
+                "window" => "canvas",
+                "windowframe" => "buttonborder",
+                "windowtext" => "canvastext",
+            }
+        }
+
+        match rgba_from_named_color(ident).cloned() {
+            Some(rgba) => Ok(Color::NamedColor(NamedColor::new(
+                ident.to_lowercase(),
+                SrgbColor::from_rgba(rgba),
+            ))),
+            None => match same_as_from_deprecated_color(ident).cloned() {
+                Some(same_as) => Ok(Color::DeprecatedColor(DeprecatedColor::new(
+                    ident.to_lowercase(),
+                    SystemColor::new(same_as.to_string()),
+                ))),
+                None => match_ignore_ascii_case! { ident,
+                    "accentcolor" | "accentcolortext" | "activetext" | "buttonborder" | "buttonface" |
+                    "buttontext" | "canvas" | "canvastext" | "field" | "fieldtext" |
+                    "graytext" | "highlight" | "highlighttext" | "linktext" | "mark" |
+                    "marktext" | "selecteditem" | "selecteditemtext" | "visitedtext" => Ok(Color::SystemColor(SystemColor::new(ident.to_lowercase()))),
+                    "currentcolor" => Ok(Color::CurrentColor(CurrentColor)),
+                    _ => Err(()),
+                },
+            },
+        }
+    }
 }
 
 #[inline]
@@ -545,199 +785,6 @@ fn rgb(red: u8, green: u8, blue: u8) -> Color {
 #[inline]
 fn rgba(red: u8, green: u8, blue: u8, alpha: u8) -> Color {
     Color::SrgbColor(SrgbColor::from_ints(red, green, blue, alpha))
-}
-
-/// Return the named color with the given name.
-///
-/// Matching is case-insensitive in the ASCII range.
-/// CSS escaping (if relevant) should be resolved before calling this function.
-/// (For example, the value of an `Ident` token is fine.)
-///
-/// https://w3c.github.io/csswg-drafts/css-color-4/#color-keywords
-#[inline]
-pub fn parse_color_keyword(ident: &str) -> Result<Color, ()> {
-    macro_rules! rgb {
-        ($red: expr, $green: expr, $blue: expr) => {
-            RGBA {
-                red: $red,
-                green: $green,
-                blue: $blue,
-                alpha: 255,
-            }
-        };
-    }
-    ascii_case_insensitive_phf_map! {
-        keyword -> RGBA = {
-            "black" => rgb!(0, 0, 0),
-            "silver" => rgb!(192, 192, 192),
-            "gray" => rgb!(128, 128, 128),
-            "white" => rgb!(255, 255, 255),
-            "maroon" => rgb!(128, 0, 0),
-            "red" => rgb!(255, 0, 0),
-            "purple" => rgb!(128, 0, 128),
-            "fuchsia" => rgb!(255, 0, 255),
-            "green" => rgb!(0, 128, 0),
-            "lime" => rgb!(0, 255, 0),
-            "olive" => rgb!(128, 128, 0),
-            "yellow" => rgb!(255, 255, 0),
-            "navy" => rgb!(0, 0, 128),
-            "blue" => rgb!(0, 0, 255),
-            "teal" => rgb!(0, 128, 128),
-            "aqua" => rgb!(0, 255, 255),
-
-            "aliceblue" => rgb!(240, 248, 255),
-            "antiquewhite" => rgb!(250, 235, 215),
-            "aquamarine" => rgb!(127, 255, 212),
-            "azure" => rgb!(240, 255, 255),
-            "beige" => rgb!(245, 245, 220),
-            "bisque" => rgb!(255, 228, 196),
-            "blanchedalmond" => rgb!(255, 235, 205),
-            "blueviolet" => rgb!(138, 43, 226),
-            "brown" => rgb!(165, 42, 42),
-            "burlywood" => rgb!(222, 184, 135),
-            "cadetblue" => rgb!(95, 158, 160),
-            "chartreuse" => rgb!(127, 255, 0),
-            "chocolate" => rgb!(210, 105, 30),
-            "coral" => rgb!(255, 127, 80),
-            "cornflowerblue" => rgb!(100, 149, 237),
-            "cornsilk" => rgb!(255, 248, 220),
-            "crimson" => rgb!(220, 20, 60),
-            "cyan" => rgb!(0, 255, 255),
-            "darkblue" => rgb!(0, 0, 139),
-            "darkcyan" => rgb!(0, 139, 139),
-            "darkgoldenrod" => rgb!(184, 134, 11),
-            "darkgray" => rgb!(169, 169, 169),
-            "darkgreen" => rgb!(0, 100, 0),
-            "darkgrey" => rgb!(169, 169, 169),
-            "darkkhaki" => rgb!(189, 183, 107),
-            "darkmagenta" => rgb!(139, 0, 139),
-            "darkolivegreen" => rgb!(85, 107, 47),
-            "darkorange" => rgb!(255, 140, 0),
-            "darkorchid" => rgb!(153, 50, 204),
-            "darkred" => rgb!(139, 0, 0),
-            "darksalmon" => rgb!(233, 150, 122),
-            "darkseagreen" => rgb!(143, 188, 143),
-            "darkslateblue" => rgb!(72, 61, 139),
-            "darkslategray" => rgb!(47, 79, 79),
-            "darkslategrey" => rgb!(47, 79, 79),
-            "darkturquoise" => rgb!(0, 206, 209),
-            "darkviolet" => rgb!(148, 0, 211),
-            "deeppink" => rgb!(255, 20, 147),
-            "deepskyblue" => rgb!(0, 191, 255),
-            "dimgray" => rgb!(105, 105, 105),
-            "dimgrey" => rgb!(105, 105, 105),
-            "dodgerblue" => rgb!(30, 144, 255),
-            "firebrick" => rgb!(178, 34, 34),
-            "floralwhite" => rgb!(255, 250, 240),
-            "forestgreen" => rgb!(34, 139, 34),
-            "gainsboro" => rgb!(220, 220, 220),
-            "ghostwhite" => rgb!(248, 248, 255),
-            "gold" => rgb!(255, 215, 0),
-            "goldenrod" => rgb!(218, 165, 32),
-            "greenyellow" => rgb!(173, 255, 47),
-            "grey" => rgb!(128, 128, 128),
-            "honeydew" => rgb!(240, 255, 240),
-            "hotpink" => rgb!(255, 105, 180),
-            "indianred" => rgb!(205, 92, 92),
-            "indigo" => rgb!(75, 0, 130),
-            "ivory" => rgb!(255, 255, 240),
-            "khaki" => rgb!(240, 230, 140),
-            "lavender" => rgb!(230, 230, 250),
-            "lavenderblush" => rgb!(255, 240, 245),
-            "lawngreen" => rgb!(124, 252, 0),
-            "lemonchiffon" => rgb!(255, 250, 205),
-            "lightblue" => rgb!(173, 216, 230),
-            "lightcoral" => rgb!(240, 128, 128),
-            "lightcyan" => rgb!(224, 255, 255),
-            "lightgoldenrodyellow" => rgb!(250, 250, 210),
-            "lightgray" => rgb!(211, 211, 211),
-            "lightgreen" => rgb!(144, 238, 144),
-            "lightgrey" => rgb!(211, 211, 211),
-            "lightpink" => rgb!(255, 182, 193),
-            "lightsalmon" => rgb!(255, 160, 122),
-            "lightseagreen" => rgb!(32, 178, 170),
-            "lightskyblue" => rgb!(135, 206, 250),
-            "lightslategray" => rgb!(119, 136, 153),
-            "lightslategrey" => rgb!(119, 136, 153),
-            "lightsteelblue" => rgb!(176, 196, 222),
-            "lightyellow" => rgb!(255, 255, 224),
-            "limegreen" => rgb!(50, 205, 50),
-            "linen" => rgb!(250, 240, 230),
-            "magenta" => rgb!(255, 0, 255),
-            "mediumaquamarine" => rgb!(102, 205, 170),
-            "mediumblue" => rgb!(0, 0, 205),
-            "mediumorchid" => rgb!(186, 85, 211),
-            "mediumpurple" => rgb!(147, 112, 219),
-            "mediumseagreen" => rgb!(60, 179, 113),
-            "mediumslateblue" => rgb!(123, 104, 238),
-            "mediumspringgreen" => rgb!(0, 250, 154),
-            "mediumturquoise" => rgb!(72, 209, 204),
-            "mediumvioletred" => rgb!(199, 21, 133),
-            "midnightblue" => rgb!(25, 25, 112),
-            "mintcream" => rgb!(245, 255, 250),
-            "mistyrose" => rgb!(255, 228, 225),
-            "moccasin" => rgb!(255, 228, 181),
-            "navajowhite" => rgb!(255, 222, 173),
-            "oldlace" => rgb!(253, 245, 230),
-            "olivedrab" => rgb!(107, 142, 35),
-            "orange" => rgb!(255, 165, 0),
-            "orangered" => rgb!(255, 69, 0),
-            "orchid" => rgb!(218, 112, 214),
-            "palegoldenrod" => rgb!(238, 232, 170),
-            "palegreen" => rgb!(152, 251, 152),
-            "paleturquoise" => rgb!(175, 238, 238),
-            "palevioletred" => rgb!(219, 112, 147),
-            "papayawhip" => rgb!(255, 239, 213),
-            "peachpuff" => rgb!(255, 218, 185),
-            "peru" => rgb!(205, 133, 63),
-            "pink" => rgb!(255, 192, 203),
-            "plum" => rgb!(221, 160, 221),
-            "powderblue" => rgb!(176, 224, 230),
-            "rebeccapurple" => rgb!(102, 51, 153),
-            "rosybrown" => rgb!(188, 143, 143),
-            "royalblue" => rgb!(65, 105, 225),
-            "saddlebrown" => rgb!(139, 69, 19),
-            "salmon" => rgb!(250, 128, 114),
-            "sandybrown" => rgb!(244, 164, 96),
-            "seagreen" => rgb!(46, 139, 87),
-            "seashell" => rgb!(255, 245, 238),
-            "sienna" => rgb!(160, 82, 45),
-            "skyblue" => rgb!(135, 206, 235),
-            "slateblue" => rgb!(106, 90, 205),
-            "slategray" => rgb!(112, 128, 144),
-            "slategrey" => rgb!(112, 128, 144),
-            "snow" => rgb!(255, 250, 250),
-            "springgreen" => rgb!(0, 255, 127),
-            "steelblue" => rgb!(70, 130, 180),
-            "tan" => rgb!(210, 180, 140),
-            "thistle" => rgb!(216, 191, 216),
-            "tomato" => rgb!(255, 99, 71),
-            "turquoise" => rgb!(64, 224, 208),
-            "violet" => rgb!(238, 130, 238),
-            "wheat" => rgb!(245, 222, 179),
-            "whitesmoke" => rgb!(245, 245, 245),
-            "yellowgreen" => rgb!(154, 205, 50),
-
-            "transparent" => RGBA { red: 0, green: 0, blue: 0, alpha: 0 },
-        }
-    }
-
-    match ident {
-        "currentcolor" => Ok(Color::CurrentColor(CurrentColor)),
-        _ => Ok(Color::SrgbColor(SrgbColor::from_rgba(
-            keyword(ident).cloned().ok_or(())?,
-        ))),
-    }
-}
-
-#[inline]
-fn from_hex(c: u8) -> Result<u8, ()> {
-    match c {
-        b'0'..=b'9' => Ok(c - b'0'),
-        b'a'..=b'f' => Ok(c - b'a' + 10),
-        b'A'..=b'F' => Ok(c - b'A' + 10),
-        _ => Err(()),
-    }
 }
 
 fn clamp_unit_f32(val: f32) -> u8 {
@@ -1050,7 +1097,8 @@ pub fn hsl_to_rgb(hue: f32, saturation: f32, lightness: f32) -> (f32, f32, f32) 
 mod tests {
     use crate::{
         color::{CurrentColor, DefaultComponentParser, SrgbColor},
-        AlphaValue, Color, ColorComponentParser, Hue, Parser, ParserInput, ToCss, RGBA,
+        AlphaValue, Color, ColorComponentParser, DeprecatedColor, Hue, NamedColor, Parser,
+        ParserInput, SystemColor, ToCss, RGBA,
     };
 
     #[test]
@@ -1794,91 +1842,6 @@ mod tests {
     }
 
     #[test]
-    fn colorcomponentparser_parse_hash() {
-        assert_eq!(
-            Color::parse_hash(b"AABBCCDD"),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(
-                0xAA, 0xBB, 0xCC, 0xDD
-            )))
-        );
-        assert_eq!(
-            Color::parse_hash(b"AABBCC"),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(
-                0xAA, 0xBB, 0xCC, 255
-            )))
-        );
-        assert_eq!(
-            Color::parse_hash(b"ABCD"),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(
-                0xAA, 0xBB, 0xCC, 0xDD
-            )))
-        );
-        assert_eq!(
-            Color::parse_hash(b"ABC"),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(
-                0xAA, 0xBB, 0xCC, 255
-            )))
-        );
-        assert_eq!(
-            Color::parse_hash(b"12345678"),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(
-                0x12, 0x34, 0x56, 0x78
-            )))
-        );
-        assert_eq!(
-            Color::parse_hash(b"abcdef90"),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(
-                0xAB, 0xCD, 0xEF, 0x90
-            )))
-        );
-
-        assert_eq!(Color::parse_hash(b""), Err(()));
-        assert_eq!(Color::parse_hash(b"A"), Err(()));
-        assert_eq!(Color::parse_hash(b"AB"), Err(()));
-        assert_eq!(Color::parse_hash(b"ABCDE"), Err(()));
-        assert_eq!(Color::parse_hash(b"ABCDEF0"), Err(()));
-        assert_eq!(Color::parse_hash(b"GHIJKLMN"), Err(()));
-    }
-
-    #[test]
-    fn colorcomponentparser_parse_color_keyword() {
-        assert_eq!(
-            super::parse_color_keyword("black"),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(0, 0, 0, 255)))
-        );
-        assert_eq!(
-            super::parse_color_keyword("white"),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 255, 255, 255)))
-        );
-        assert_eq!(
-            super::parse_color_keyword("cyan"),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(0, 255, 255, 255)))
-        );
-        assert_eq!(
-            super::parse_color_keyword("magenta"),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 255, 255)))
-        );
-        assert_eq!(
-            super::parse_color_keyword("red"),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            super::parse_color_keyword("lightgoldenrodyellow"),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(250, 250, 210, 255)))
-        );
-        assert_eq!(
-            super::parse_color_keyword("transparent"),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(0, 0, 0, 0)))
-        );
-        assert_eq!(
-            super::parse_color_keyword("currentcolor"),
-            Ok(Color::CurrentColor(CurrentColor))
-        );
-
-        assert!(super::parse_color_keyword("yellowblue").is_err());
-    }
-
-    #[test]
     fn colorcomponentparser_parse_percentage() {
         assert_eq!(
             ColorComponentParser::parse_percentage(
@@ -2095,6 +2058,125 @@ mod tests {
     }
 
     #[test]
+    fn color_parse_hash() {
+        assert_eq!(
+            Color::parse_hex_color("AABBCCDD"),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0xAA, 0xBB, 0xCC, 0xDD
+            )))
+        );
+        assert_eq!(
+            Color::parse_hex_color("AABBCC"),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0xAA, 0xBB, 0xCC, 255
+            )))
+        );
+        assert_eq!(
+            Color::parse_hex_color("ABCD"),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0xAA, 0xBB, 0xCC, 0xDD
+            )))
+        );
+        assert_eq!(
+            Color::parse_hex_color("ABC"),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0xAA, 0xBB, 0xCC, 255
+            )))
+        );
+        assert_eq!(
+            Color::parse_hex_color("12345678"),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0x12, 0x34, 0x56, 0x78
+            )))
+        );
+        assert_eq!(
+            Color::parse_hex_color("abcdef90"),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0xAB, 0xCD, 0xEF, 0x90
+            )))
+        );
+
+        assert_eq!(Color::parse_hex_color(""), Err(()));
+        assert_eq!(Color::parse_hex_color("A"), Err(()));
+        assert_eq!(Color::parse_hex_color("AB"), Err(()));
+        assert_eq!(Color::parse_hex_color("ABCDE"), Err(()));
+        assert_eq!(Color::parse_hex_color("ABCDEF0"), Err(()));
+        assert_eq!(Color::parse_hex_color("GHIJKLMN"), Err(()));
+    }
+
+    #[test]
+    fn color_parse_color_keyword() {
+        assert_eq!(
+            Color::parse_color_keyword("black"),
+            Ok(Color::NamedColor(NamedColor::new(
+                "black".to_string(),
+                SrgbColor::from_ints(0, 0, 0, 255)
+            )))
+        );
+        assert_eq!(
+            Color::parse_color_keyword("white"),
+            Ok(Color::NamedColor(NamedColor::new(
+                "white".to_string(),
+                SrgbColor::from_ints(255, 255, 255, 255)
+            )))
+        );
+        assert_eq!(
+            Color::parse_color_keyword("cyan"),
+            Ok(Color::NamedColor(NamedColor::new(
+                "cyan".to_string(),
+                SrgbColor::from_ints(0, 255, 255, 255)
+            )))
+        );
+        assert_eq!(
+            Color::parse_color_keyword("magenta"),
+            Ok(Color::NamedColor(NamedColor::new(
+                "magenta".to_string(),
+                SrgbColor::from_ints(255, 0, 255, 255)
+            )))
+        );
+        assert_eq!(
+            Color::parse_color_keyword("red"),
+            Ok(Color::NamedColor(NamedColor::new(
+                "red".to_string(),
+                SrgbColor::from_ints(255, 0, 0, 255)
+            )))
+        );
+        assert_eq!(
+            Color::parse_color_keyword("lightgoldenrodyellow"),
+            Ok(Color::NamedColor(NamedColor::new(
+                "lightgoldenrodyellow".to_string(),
+                SrgbColor::from_ints(250, 250, 210, 255)
+            )))
+        );
+        assert_eq!(
+            Color::parse_color_keyword("transparent"),
+            Ok(Color::NamedColor(NamedColor::new(
+                "transparent".to_string(),
+                SrgbColor::from_ints(0, 0, 0, 0)
+            )))
+        );
+        assert_eq!(
+            Color::parse_color_keyword("canvastext"),
+            Ok(Color::SystemColor(SystemColor::new(
+                "canvastext".to_string()
+            )))
+        );
+        assert_eq!(
+            Color::parse_color_keyword("activeborder"),
+            Ok(Color::DeprecatedColor(DeprecatedColor::new(
+                "activeborder".to_string(),
+                SystemColor::new("buttonborder".to_string())
+            )))
+        );
+        assert_eq!(
+            Color::parse_color_keyword("currentcolor"),
+            Ok(Color::CurrentColor(CurrentColor))
+        );
+
+        assert!(Color::parse_color_keyword("yellowblue").is_err());
+    }
+
+    #[test]
     fn color_parse_with() {
         let component_parser = DefaultComponentParser;
 
@@ -2120,14 +2202,20 @@ mod tests {
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("transparent"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(0, 0, 0, 0)))
+            Ok(Color::NamedColor(NamedColor::new(
+                "transparent".to_string(),
+                SrgbColor::from_ints(0, 0, 0, 0)
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("red"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+            Ok(Color::NamedColor(NamedColor::new(
+                "red".to_string(),
+                SrgbColor::from_ints(255, 0, 0, 255)
+            )))
         );
 
         assert_eq!(
