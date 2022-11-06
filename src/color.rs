@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::f32::consts::PI;
+use std::f64::consts::PI;
 use std::fmt;
 
 use super::{BasicParseError, ParseError, Parser, ToCss, Token};
@@ -10,8 +10,7 @@ use super::{BasicParseError, ParseError, Parser, ToCss, Token};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// A color with red, green, blue, and alpha components, in a byte each.
-/// https://w3c.github.io/csswg-drafts/css-color-4/#resolving-sRGB-values
+/// A color primitive with red, green, blue, and alpha components, in a byte each.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[repr(C)]
 pub struct RGBA {
@@ -102,67 +101,296 @@ impl<'de> Deserialize<'de> for RGBA {
     }
 }
 
-impl ToCss for RGBA {
+// NOTE: `RGBA` should not implement `ToCss` because it is an internal primitive that does not directly represent a CSS value.
+
+/// <hue>
+/// https://w3c.github.io/csswg-drafts/css-color-4/#hue-syntax
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Hue {
+    /// The value as a number of degrees.
+    pub degrees: f32,
+}
+
+/// <alpha-value>
+/// https://w3c.github.io/csswg-drafts/css-color-4/#alpha-syntax
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct AlphaValue {
+    /// The value as a number in the range of 0 to 1.
+    pub number: f32,
+}
+
+/// A color in the sRGB color space.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum SrgbColor {
+    /// https://w3c.github.io/csswg-drafts/css-color-4/#numeric-srgb
+    Rgb {
+        /// The red channel.
+        red: Option<f64>,
+        /// The green channel.
+        green: Option<f64>,
+        /// The blue channel.
+        blue: Option<f64>,
+        /// The alpha channel.
+        alpha: Option<AlphaValue>,
+    },
+    /// https://w3c.github.io/csswg-drafts/css-color-4/#the-hsl-notation
+    Hsl {
+        /// The hue component.
+        hue: Option<Hue>,
+        /// The saturation component.
+        saturation: Option<f32>,
+        /// The lightness component.
+        lightness: Option<f32>,
+        /// The alpha channel.
+        alpha: Option<AlphaValue>,
+    },
+    /// https://w3c.github.io/csswg-drafts/css-color-4/#the-hwb-notation
+    Hwb {
+        /// The hue component.
+        hue: Option<Hue>,
+        /// The whiteness component.
+        whiteness: Option<f32>,
+        /// The blackness component.
+        blackness: Option<f32>,
+        /// The alpha channel.
+        alpha: Option<AlphaValue>,
+    },
+}
+
+impl SrgbColor {
+    /// Construct an sRGB color from its component channels.
+    pub fn new(
+        red: Option<f64>,
+        green: Option<f64>,
+        blue: Option<f64>,
+        alpha: Option<AlphaValue>,
+    ) -> Self {
+        Self::Rgb {
+            red,
+            green,
+            blue,
+            alpha,
+        }
+    }
+
+    /// Construct an sRGB color using the HSL color scheme.
+    pub fn with_hsl(
+        hue: Option<Hue>,
+        saturation: Option<f32>,
+        lightness: Option<f32>,
+        alpha: Option<AlphaValue>,
+    ) -> Self {
+        Self::Hsl {
+            hue,
+            saturation,
+            lightness,
+            alpha,
+        }
+    }
+
+    /// Construct an sRGB color using the HWB color scheme.
+    pub fn with_hwb(
+        hue: Option<Hue>,
+        whiteness: Option<f32>,
+        blackness: Option<f32>,
+        alpha: Option<AlphaValue>,
+    ) -> Self {
+        Self::Hwb {
+            hue,
+            whiteness,
+            blackness,
+            alpha,
+        }
+    }
+
+    /// Construct an sRGB color from channels represented as bytes.
+    pub fn from_ints(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
+        Self::new(
+            Some(red as f64 / 255.),
+            Some(green as f64 / 255.),
+            Some(blue as f64 / 255.),
+            Some(AlphaValue {
+                number: alpha as f32 / 255.,
+            }),
+        )
+    }
+
+    /// Extract sRGB color channels, with missing components converted to zero.
+    pub fn to_floats(self: Self) -> (f64, f64, f64, f32) {
+        match self {
+            Self::Rgb {
+                red,
+                green,
+                blue,
+                alpha,
+            } => (
+                red.unwrap_or(0.),
+                green.unwrap_or(0.),
+                blue.unwrap_or(0.),
+                alpha.unwrap_or(AlphaValue { number: 0. }).number,
+            ),
+            Self::Hsl {
+                hue,
+                saturation,
+                lightness,
+                alpha,
+            } => {
+                let (r, g, b) = hsl_to_rgb(
+                    hue.unwrap_or(Hue { degrees: 0. }).degrees,
+                    saturation.unwrap_or(0.),
+                    lightness.unwrap_or(0.),
+                );
+                (
+                    r as f64,
+                    g as f64,
+                    b as f64,
+                    alpha.unwrap_or(AlphaValue { number: 0. }).number,
+                )
+            }
+            Self::Hwb {
+                hue,
+                whiteness,
+                blackness,
+                alpha,
+            } => {
+                let (r, g, b) = hwb_to_rgb(
+                    hue.unwrap_or(Hue { degrees: 0. }).degrees,
+                    whiteness.unwrap_or(0.),
+                    blackness.unwrap_or(0.),
+                );
+                (
+                    r as f64,
+                    g as f64,
+                    b as f64,
+                    alpha.unwrap_or(AlphaValue { number: 0. }).number,
+                )
+            }
+        }
+    }
+
+    /// Construct an sRGB color from an RGBA color primitive.
+    pub fn from_rgba(rgba: RGBA) -> Self {
+        Self::from_ints(rgba.red, rgba.green, rgba.blue, rgba.alpha)
+    }
+
+    /// Convert an sRGB color to an RGBA color primitive.
+    pub fn to_rgba(self: Self) -> RGBA {
+        let (red, green, blue, alpha): (f64, f64, f64, f32) = self.to_floats();
+
+        RGBA {
+            red: (red.clamp(0., 1.) * 255.).round() as u8,
+            green: (green.clamp(0., 1.) * 255.).round() as u8,
+            blue: (blue.clamp(0., 1.) * 255.).round() as u8,
+            alpha: (alpha.clamp(0., 1.) * 255.).round() as u8,
+        }
+    }
+}
+
+impl ToCss for SrgbColor {
     fn to_css<W>(&self, dest: &mut W) -> fmt::Result
     where
         W: fmt::Write,
     {
-        let serialize_alpha = self.alpha != 255;
+        let (red, green, blue, alpha): (f64, f64, f64, f32) = self.to_floats();
+
+        let serialize_alpha = alpha != 1.;
 
         dest.write_str(if serialize_alpha { "rgba(" } else { "rgb(" })?;
-        self.red.to_css(dest)?;
+        (red * 255.).to_css(dest)?;
         dest.write_str(", ")?;
-        self.green.to_css(dest)?;
+        (green * 255.).to_css(dest)?;
         dest.write_str(", ")?;
-        self.blue.to_css(dest)?;
+        (blue * 255.).to_css(dest)?;
         if serialize_alpha {
             dest.write_str(", ")?;
-
-            // Try first with two decimal places, then with three.
-            let mut rounded_alpha = (self.alpha_f32() * 100.).round() / 100.;
-            if clamp_unit_f32(rounded_alpha) != self.alpha {
-                rounded_alpha = (self.alpha_f32() * 1000.).round() / 1000.;
-            }
-
-            rounded_alpha.to_css(dest)?;
+            alpha.to_css(dest)?;
         }
         dest.write_char(')')
+    }
+}
+
+/// https://w3c.github.io/csswg-drafts/css-color-4/#named-colors
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct NamedColor<'a> {
+    /// The name of the color.
+    pub name: &'a str,
+    /// The corresponding sRGB color value.
+    pub value: SrgbColor,
+}
+
+impl<'a> NamedColor<'a> {
+    /// Construct a named color.
+    pub fn new(name: &'a str, value: SrgbColor) -> Self {
+        Self { name, value }
+    }
+}
+
+impl<'a> ToCss for NamedColor<'a> {
+    fn to_css<W>(&self, dest: &mut W) -> fmt::Result
+    where
+        W: fmt::Write,
+    {
+        self.value.to_css(dest)
+    }
+}
+
+/// https://w3c.github.io/csswg-drafts/css-color-4/#css-system-colors
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct SystemColor<'a> {
+    /// The name of the color.
+    pub name: &'a str,
+}
+
+impl<'a> SystemColor<'a> {
+    /// Construct a system color.
+    pub fn new(name: &'a str) -> Self {
+        Self { name }
+    }
+}
+
+/// https://w3c.github.io/csswg-drafts/css-color-4/#deprecated-system-colors
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct DeprecatedColor<'a> {
+    /// The name of the deprecated color alias.
+    pub name: &'a str,
+    /// The corresponding system color.
+    pub same_as: SystemColor<'a>,
+}
+
+impl<'a> DeprecatedColor<'a> {
+    /// Construct a deprecated color.
+    pub fn new(name: &'a str, same_as: SystemColor<'a>) -> Self {
+        Self { name, same_as }
+    }
+}
+
+/// https://w3c.github.io/csswg-drafts/css-color-4/#currentcolor-color
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct CurrentColor;
+
+impl ToCss for CurrentColor {
+    fn to_css<W>(&self, dest: &mut W) -> fmt::Result
+    where
+        W: fmt::Write,
+    {
+        dest.write_str("currentcolor")
     }
 }
 
 /// A <color> value.
 /// https://w3c.github.io/csswg-drafts/css-color-4/#color-syntax
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Color {
+pub enum Color /*<'a>*/ {
+    /// An sRGB color
+    SrgbColor(SrgbColor),
+    /*NamedColor(NamedColor<'a>),
+    SystemColor(SystemColor<'a>),
+    DeprecatedColor(DeprecatedColor<'a>),*/
     /// The 'currentcolor' keyword
-    CurrentColor,
-    /// Everything else gets converted to RGBA during parsing
-    RGBA(RGBA),
+    CurrentColor(CurrentColor),
 }
 
-impl ToCss for Color {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result
-    where
-        W: fmt::Write,
-    {
-        match *self {
-            Color::CurrentColor => dest.write_str("currentcolor"),
-            Color::RGBA(ref rgba) => rgba.to_css(dest),
-        }
-    }
-}
-
-/// https://w3c.github.io/csswg-drafts/css-color-4/#hue-syntax
-pub struct Hue {
-    /// The value as a number of degrees.
-    degrees: f32,
-}
-
-/// https://w3c.github.io/csswg-drafts/css-color-4/#alpha-syntax
-pub struct AlphaValue {
-    /// The value as a number in the range of 0 to 1.
-    number: f32,
-}
+// NOTE: `Color` cannot implement `ToCss` here because some variants cannot be serialized at parsing time.
 
 /// A trait that can be used to hook into how `cssparser` parses color
 /// components, with the intention of implementing more complicated behavior.
@@ -202,6 +430,9 @@ pub trait ColorComponentParser<'i> {
             Token::Dimension {
                 value: v, ref unit, ..
             } => {
+                // Expand f32 to f64 to avoid rounding errors during conversion.
+                let v = v as f64;
+
                 let degrees = match_ignore_ascii_case! { &*unit,
                     "deg" => v,
                     "grad" => (v / 400.) * 360.,
@@ -210,7 +441,9 @@ pub trait ColorComponentParser<'i> {
                     _ => return Err(location.new_unexpected_token_error(Token::Ident(unit.clone()))),
                 };
 
-                Hue { degrees }
+                Hue {
+                    degrees: degrees as f32,
+                }
             }
             ref t => return Err(location.new_unexpected_token_error(t.clone())),
         })
@@ -311,7 +544,7 @@ fn rgb(red: u8, green: u8, blue: u8) -> Color {
 
 #[inline]
 fn rgba(red: u8, green: u8, blue: u8, alpha: u8) -> Color {
-    Color::RGBA(RGBA::new(red, green, blue, alpha))
+    Color::SrgbColor(SrgbColor::from_ints(red, green, blue, alpha))
 }
 
 /// Return the named color with the given name.
@@ -325,16 +558,16 @@ fn rgba(red: u8, green: u8, blue: u8, alpha: u8) -> Color {
 pub fn parse_color_keyword(ident: &str) -> Result<Color, ()> {
     macro_rules! rgb {
         ($red: expr, $green: expr, $blue: expr) => {
-            Color::RGBA(RGBA {
+            RGBA {
                 red: $red,
                 green: $green,
                 blue: $blue,
                 alpha: 255,
-            })
+            }
         };
     }
     ascii_case_insensitive_phf_map! {
-        keyword -> Color = {
+        keyword -> RGBA = {
             "black" => rgb!(0, 0, 0),
             "silver" => rgb!(192, 192, 192),
             "gray" => rgb!(128, 128, 128),
@@ -485,11 +718,16 @@ pub fn parse_color_keyword(ident: &str) -> Result<Color, ()> {
             "whitesmoke" => rgb!(245, 245, 245),
             "yellowgreen" => rgb!(154, 205, 50),
 
-            "transparent" => Color::RGBA(RGBA { red: 0, green: 0, blue: 0, alpha: 0 }),
-            "currentcolor" => Color::CurrentColor,
+            "transparent" => RGBA { red: 0, green: 0, blue: 0, alpha: 0 },
         }
     }
-    keyword(ident).cloned().ok_or(())
+
+    match ident {
+        "currentcolor" => Ok(Color::CurrentColor(CurrentColor)),
+        _ => Ok(Color::SrgbColor(SrgbColor::from_rgba(
+            keyword(ident).cloned().ok_or(())?,
+        ))),
+    }
 }
 
 #[inline]
@@ -811,8 +1049,8 @@ pub fn hsl_to_rgb(hue: f32, saturation: f32, lightness: f32) -> (f32, f32, f32) 
 #[cfg(test)]
 mod tests {
     use crate::{
-        color::DefaultComponentParser, Color, ColorComponentParser, Parser, ParserInput, ToCss,
-        RGBA,
+        color::{CurrentColor, DefaultComponentParser, SrgbColor},
+        AlphaValue, Color, ColorComponentParser, Hue, Parser, ParserInput, ToCss, RGBA,
     };
 
     #[test]
@@ -997,51 +1235,601 @@ mod tests {
     }
 
     #[test]
-    fn rgba_to_css() {
-        assert_eq!(RGBA::new(0, 0, 0, 0).to_css_string(), "rgba(0, 0, 0, 0)");
+    fn hue_clone() {
+        assert_eq!(Hue { degrees: 0. }.clone(), Hue { degrees: 0. });
+        assert_eq!(Hue { degrees: 180. }.clone(), Hue { degrees: 180. });
+        assert_eq!(Hue { degrees: 360. }.clone(), Hue { degrees: 360. });
+    }
+
+    #[test]
+    fn hue_clone_from() {
+        let mut target = Hue { degrees: 45. };
+
+        target.clone_from(&Hue { degrees: 90. });
+
+        assert_eq!(target, Hue { degrees: 90. });
+
+        target.clone_from(&Hue { degrees: 60. });
+
+        assert_eq!(target, Hue { degrees: 60. });
+    }
+
+    #[test]
+    fn hue_fmt() {
+        assert_eq!(format!("{:?}", Hue { degrees: 0. }), "Hue { degrees: 0.0 }",);
+    }
+
+    #[test]
+    fn hue_eq() {
+        assert!(Hue { degrees: 0. } == Hue { degrees: 0. });
+        assert!(Hue { degrees: 270. } == Hue { degrees: 270. });
+    }
+
+    #[test]
+    fn hue_ne() {
+        assert!(Hue { degrees: 0. } != Hue { degrees: 270. });
+        assert!(Hue { degrees: 270. } != Hue { degrees: 0. });
+    }
+
+    #[test]
+    fn alphavalue_clone() {
         assert_eq!(
-            RGBA::new(0, 170, 255, 51).to_css_string(),
+            AlphaValue { number: 0.0 }.clone(),
+            AlphaValue { number: 0.0 }
+        );
+        assert_eq!(
+            AlphaValue { number: 0.5 }.clone(),
+            AlphaValue { number: 0.5 }
+        );
+        assert_eq!(
+            AlphaValue { number: 1.0 }.clone(),
+            AlphaValue { number: 1.0 }
+        );
+    }
+
+    #[test]
+    fn alphavalue_clone_from() {
+        let mut target = AlphaValue { number: 0.0 };
+
+        target.clone_from(&AlphaValue { number: 0.25 });
+
+        assert_eq!(target, AlphaValue { number: 0.25 });
+
+        target.clone_from(&AlphaValue { number: 0.667 });
+
+        assert_eq!(target, AlphaValue { number: 0.667 });
+    }
+
+    #[test]
+    fn alphavalue_fmt() {
+        assert_eq!(
+            format!("{:?}", AlphaValue { number: 0. }),
+            "AlphaValue { number: 0.0 }",
+        );
+    }
+
+    #[test]
+    fn alphavalue_eq() {
+        assert!(AlphaValue { number: 0.0 } == AlphaValue { number: 0.0 });
+        assert!(AlphaValue { number: 0.5 } == AlphaValue { number: 0.5 });
+    }
+
+    #[test]
+    fn alphavalue_ne() {
+        assert!(AlphaValue { number: 0.0 } != AlphaValue { number: 0.5 });
+        assert!(AlphaValue { number: 0.5 } != AlphaValue { number: 0.0 });
+    }
+
+    #[test]
+    fn srgbcolor_clone() {
+        assert_eq!(
+            SrgbColor::Rgb {
+                red: None,
+                green: None,
+                blue: None,
+                alpha: None
+            }
+            .clone(),
+            SrgbColor::Rgb {
+                red: None,
+                green: None,
+                blue: None,
+                alpha: None
+            }
+        );
+        assert_eq!(
+            SrgbColor::Hsl {
+                hue: None,
+                saturation: None,
+                lightness: None,
+                alpha: None
+            }
+            .clone(),
+            SrgbColor::Hsl {
+                hue: None,
+                saturation: None,
+                lightness: None,
+                alpha: None
+            }
+        );
+        assert_eq!(
+            SrgbColor::Hwb {
+                hue: None,
+                whiteness: None,
+                blackness: None,
+                alpha: None
+            }
+            .clone(),
+            SrgbColor::Hwb {
+                hue: None,
+                whiteness: None,
+                blackness: None,
+                alpha: None
+            }
+        );
+    }
+
+    #[test]
+    fn srgbcolor_clone_from() {
+        let mut target = SrgbColor::Rgb {
+            red: Some(0.0),
+            green: Some(0.0),
+            blue: Some(0.0),
+            alpha: Some(AlphaValue { number: 1.0 }),
+        };
+
+        target.clone_from(&SrgbColor::Hsl {
+            hue: Some(Hue { degrees: 10. }),
+            saturation: Some(0.20),
+            lightness: Some(0.30),
+            alpha: Some(AlphaValue { number: 0.65 }),
+        });
+
+        assert_eq!(
+            target,
+            SrgbColor::Hsl {
+                hue: Some(Hue { degrees: 10. }),
+                saturation: Some(0.20),
+                lightness: Some(0.30),
+                alpha: Some(AlphaValue { number: 0.65 })
+            }
+        );
+
+        target.clone_from(&SrgbColor::Hwb {
+            hue: Some(Hue { degrees: 10. }),
+            whiteness: Some(0.20),
+            blackness: Some(0.30),
+            alpha: Some(AlphaValue { number: 0.325 }),
+        });
+
+        assert_eq!(
+            target,
+            SrgbColor::Hwb {
+                hue: Some(Hue { degrees: 10. }),
+                whiteness: Some(0.20),
+                blackness: Some(0.30),
+                alpha: Some(AlphaValue { number: 0.325 })
+            }
+        );
+    }
+
+    #[test]
+    fn srgbcolor_fmt() {
+        assert_eq!(
+            format!("{:?}", SrgbColor::Rgb { red: Some(0.0), green: Some(0.0), blue: Some(0.0), alpha: Some(AlphaValue { number: 1.0 }) }),
+            "Rgb { red: Some(0.0), green: Some(0.0), blue: Some(0.0), alpha: Some(AlphaValue { number: 1.0 }) }",
+        );
+    }
+
+    #[test]
+    fn srgbcolor_eq() {
+        assert!(
+            SrgbColor::Rgb {
+                red: Some(0.0),
+                green: Some(0.0),
+                blue: Some(0.0),
+                alpha: Some(AlphaValue { number: 1.0 })
+            } == SrgbColor::Rgb {
+                red: Some(0.0),
+                green: Some(0.0),
+                blue: Some(0.0),
+                alpha: Some(AlphaValue { number: 1.0 })
+            }
+        );
+        assert!(
+            SrgbColor::Rgb {
+                red: Some(1.0),
+                green: Some(1.0),
+                blue: Some(1.0),
+                alpha: Some(AlphaValue { number: 0.0 })
+            } == SrgbColor::Rgb {
+                red: Some(1.0),
+                green: Some(1.0),
+                blue: Some(1.0),
+                alpha: Some(AlphaValue { number: 0.0 })
+            }
+        );
+    }
+
+    #[test]
+    fn srgbcolor_ne() {
+        assert!(
+            SrgbColor::Rgb {
+                red: Some(0.0),
+                green: Some(0.0),
+                blue: Some(0.0),
+                alpha: Some(AlphaValue { number: 1.0 })
+            } != SrgbColor::Rgb {
+                red: Some(1.0),
+                green: Some(1.0),
+                blue: Some(1.0),
+                alpha: Some(AlphaValue { number: 0.0 })
+            }
+        );
+        assert!(
+            SrgbColor::Rgb {
+                red: Some(1.0),
+                green: Some(1.0),
+                blue: Some(1.0),
+                alpha: Some(AlphaValue { number: 0.0 })
+            } != SrgbColor::Rgb {
+                red: Some(0.0),
+                green: Some(0.0),
+                blue: Some(0.0),
+                alpha: Some(AlphaValue { number: 1.0 })
+            }
+        );
+    }
+
+    #[test]
+    fn srgbcolor_new() {
+        assert_eq!(
+            SrgbColor::new(None, None, None, None),
+            SrgbColor::Rgb {
+                red: None,
+                green: None,
+                blue: None,
+                alpha: None
+            }
+        );
+        assert_eq!(
+            SrgbColor::new(
+                Some(0.0),
+                Some(0.0),
+                Some(0.0),
+                Some(AlphaValue { number: 1.0 })
+            ),
+            SrgbColor::Rgb {
+                red: Some(0.0),
+                green: Some(0.0),
+                blue: Some(0.0),
+                alpha: Some(AlphaValue { number: 1.0 })
+            }
+        );
+    }
+
+    #[test]
+    fn srgbcolor_with_hsl() {
+        assert_eq!(
+            SrgbColor::with_hsl(None, None, None, None),
+            SrgbColor::Hsl {
+                hue: None,
+                saturation: None,
+                lightness: None,
+                alpha: None
+            }
+        );
+        assert_eq!(
+            SrgbColor::with_hsl(
+                Some(Hue { degrees: 0. }),
+                Some(0.5),
+                Some(0.5),
+                Some(AlphaValue { number: 1.0 })
+            ),
+            SrgbColor::Hsl {
+                hue: Some(Hue { degrees: 0. }),
+                saturation: Some(0.5),
+                lightness: Some(0.5),
+                alpha: Some(AlphaValue { number: 1.0 })
+            }
+        );
+    }
+
+    #[test]
+    fn srgbcolor_with_hwb() {
+        assert_eq!(
+            SrgbColor::with_hwb(None, None, None, None),
+            SrgbColor::Hwb {
+                hue: None,
+                blackness: None,
+                whiteness: None,
+                alpha: None
+            }
+        );
+        assert_eq!(
+            SrgbColor::with_hwb(
+                Some(Hue { degrees: 0. }),
+                Some(0.5),
+                Some(0.5),
+                Some(AlphaValue { number: 1.0 })
+            ),
+            SrgbColor::Hwb {
+                hue: Some(Hue { degrees: 0. }),
+                blackness: Some(0.5),
+                whiteness: Some(0.5),
+                alpha: Some(AlphaValue { number: 1.0 })
+            }
+        );
+    }
+
+    #[test]
+    fn srgbcolor_from_ints() {
+        assert_eq!(
+            SrgbColor::from_ints(0, 0, 0, 0),
+            SrgbColor::Rgb {
+                red: Some(0.0),
+                green: Some(0.0),
+                blue: Some(0.0),
+                alpha: Some(AlphaValue { number: 0.0 })
+            }
+        );
+        assert_eq!(
+            SrgbColor::from_ints(153, 153, 153, 153),
+            SrgbColor::Rgb {
+                red: Some(0.6),
+                green: Some(0.6),
+                blue: Some(0.6),
+                alpha: Some(AlphaValue { number: 0.6 })
+            }
+        );
+        assert_eq!(
+            SrgbColor::from_ints(255, 255, 255, 255),
+            SrgbColor::Rgb {
+                red: Some(1.0),
+                green: Some(1.0),
+                blue: Some(1.0),
+                alpha: Some(AlphaValue { number: 1.0 })
+            }
+        );
+    }
+
+    #[test]
+    fn srgbcolor_to_floats() {
+        assert_eq!(
+            SrgbColor::Rgb {
+                red: None,
+                green: None,
+                blue: None,
+                alpha: None
+            }
+            .to_floats(),
+            (0.0, 0.0, 0.0, 0.0)
+        );
+        assert_eq!(
+            SrgbColor::Rgb {
+                red: Some(0.5),
+                green: Some(0.5),
+                blue: Some(0.5),
+                alpha: Some(AlphaValue { number: 0.5 })
+            }
+            .to_floats(),
+            (0.5, 0.5, 0.5, 0.5)
+        );
+        assert_eq!(
+            SrgbColor::Hsl {
+                hue: None,
+                saturation: None,
+                lightness: None,
+                alpha: None
+            }
+            .to_floats(),
+            (0.0, 0.0, 0.0, 0.0)
+        );
+        assert_eq!(
+            SrgbColor::Hsl {
+                hue: Some(Hue { degrees: 0. }),
+                saturation: Some(0.5),
+                lightness: Some(0.5),
+                alpha: Some(AlphaValue { number: 1.0 })
+            }
+            .to_floats(),
+            (0.75, 0.25, 0.25, 1.0)
+        );
+        assert_eq!(
+            SrgbColor::Hwb {
+                hue: None,
+                blackness: None,
+                whiteness: None,
+                alpha: None
+            }
+            .to_floats(),
+            (1.0, 0.0, 0.0, 0.0)
+        );
+        assert_eq!(
+            SrgbColor::Hwb {
+                hue: Some(Hue { degrees: 0. }),
+                blackness: Some(0.5),
+                whiteness: Some(0.5),
+                alpha: Some(AlphaValue { number: 1.0 })
+            }
+            .to_floats(),
+            (0.5, 0.5, 0.5, 1.0)
+        );
+    }
+
+    #[test]
+    fn srgbcolor_from_rgba() {
+        assert_eq!(
+            SrgbColor::from_rgba(RGBA {
+                red: 0,
+                green: 0,
+                blue: 0,
+                alpha: 0
+            }),
+            SrgbColor::Rgb {
+                red: Some(0.0),
+                green: Some(0.0),
+                blue: Some(0.0),
+                alpha: Some(AlphaValue { number: 0.0 })
+            }
+        );
+        assert_eq!(
+            SrgbColor::from_rgba(RGBA {
+                red: 204,
+                green: 204,
+                blue: 204,
+                alpha: 204
+            }),
+            SrgbColor::Rgb {
+                red: Some(0.8),
+                green: Some(0.8),
+                blue: Some(0.8),
+                alpha: Some(AlphaValue { number: 0.8 })
+            }
+        );
+        assert_eq!(
+            SrgbColor::from_rgba(RGBA {
+                red: 255,
+                green: 255,
+                blue: 255,
+                alpha: 255
+            }),
+            SrgbColor::Rgb {
+                red: Some(1.0),
+                green: Some(1.0),
+                blue: Some(1.0),
+                alpha: Some(AlphaValue { number: 1.0 })
+            }
+        );
+    }
+
+    #[test]
+    fn srgbcolor_to_rgba() {
+        assert_eq!(
+            SrgbColor::Rgb {
+                red: None,
+                green: None,
+                blue: None,
+                alpha: None
+            }
+            .to_rgba(),
+            RGBA {
+                red: 0,
+                green: 0,
+                blue: 0,
+                alpha: 0
+            }
+        );
+        assert_eq!(
+            SrgbColor::Rgb {
+                red: Some(0.0),
+                green: Some(-1.0),
+                blue: Some(0.5),
+                alpha: Some(AlphaValue { number: 2.0 })
+            }
+            .to_rgba(),
+            RGBA {
+                red: 0,
+                green: 0,
+                blue: 128,
+                alpha: 255
+            }
+        );
+    }
+
+    #[test]
+    fn srgbcolor_to_css() {
+        assert_eq!(
+            SrgbColor::from_ints(0, 0, 0, 0).to_css_string(),
+            "rgba(0, 0, 0, 0)"
+        );
+        assert_eq!(
+            SrgbColor::from_ints(0, 170, 255, 51).to_css_string(),
             "rgba(0, 170, 255, 0.2)"
         );
         assert_eq!(
-            RGBA::new(0, 170, 255, 74).to_css_string(),
-            "rgba(0, 170, 255, 0.29)"
+            SrgbColor::from_ints(0, 170, 255, 74).to_css_string(),
+            "rgba(0, 170, 255, 0.290196)"
         );
         assert_eq!(
-            RGBA::new(0, 51, 255, 170).to_css_string(),
-            "rgba(0, 51, 255, 0.667)"
+            SrgbColor::from_ints(0, 51, 255, 170).to_css_string(),
+            "rgba(0, 51, 255, 0.666667)"
         );
         assert_eq!(
-            RGBA::new(255, 255, 255, 255).to_css_string(),
+            SrgbColor::from_ints(255, 255, 255, 255).to_css_string(),
             "rgb(255, 255, 255)"
         );
     }
 
     #[test]
-    fn color_parse_hash() {
+    fn currentcolor_clone() {
+        assert_eq!(CurrentColor.clone(), CurrentColor);
+    }
+
+    #[test]
+    fn currentcolor_clone_from() {
+        let mut target = CurrentColor;
+
+        target.clone_from(&CurrentColor);
+
+        assert_eq!(target, CurrentColor);
+    }
+
+    #[test]
+    fn currentcolor_fmt() {
+        assert_eq!(format!("{:?}", CurrentColor), "CurrentColor",);
+    }
+
+    #[test]
+    fn currentcolor_eq() {
+        assert!(CurrentColor == CurrentColor);
+    }
+
+    #[test]
+    fn currentcolor_ne() {}
+
+    #[test]
+    fn currentcolor_to_css() {
+        assert_eq!(CurrentColor.to_css_string(), "currentcolor");
+    }
+
+    #[test]
+    fn colorcomponentparser_parse_hash() {
         assert_eq!(
             Color::parse_hash(b"AABBCCDD"),
-            Ok(Color::RGBA(RGBA::new(0xAA, 0xBB, 0xCC, 0xDD)))
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0xAA, 0xBB, 0xCC, 0xDD
+            )))
         );
         assert_eq!(
             Color::parse_hash(b"AABBCC"),
-            Ok(Color::RGBA(RGBA::new(0xAA, 0xBB, 0xCC, 255)))
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0xAA, 0xBB, 0xCC, 255
+            )))
         );
         assert_eq!(
             Color::parse_hash(b"ABCD"),
-            Ok(Color::RGBA(RGBA::new(0xAA, 0xBB, 0xCC, 0xDD)))
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0xAA, 0xBB, 0xCC, 0xDD
+            )))
         );
         assert_eq!(
             Color::parse_hash(b"ABC"),
-            Ok(Color::RGBA(RGBA::new(0xAA, 0xBB, 0xCC, 255)))
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0xAA, 0xBB, 0xCC, 255
+            )))
         );
         assert_eq!(
             Color::parse_hash(b"12345678"),
-            Ok(Color::RGBA(RGBA::new(0x12, 0x34, 0x56, 0x78)))
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0x12, 0x34, 0x56, 0x78
+            )))
         );
         assert_eq!(
             Color::parse_hash(b"abcdef90"),
-            Ok(Color::RGBA(RGBA::new(0xAB, 0xCD, 0xEF, 0x90)))
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0xAB, 0xCD, 0xEF, 0x90
+            )))
         );
 
         assert_eq!(Color::parse_hash(b""), Err(()));
@@ -1053,347 +1841,41 @@ mod tests {
     }
 
     #[test]
-    fn super_parse_color_keyword() {
+    fn colorcomponentparser_parse_color_keyword() {
         assert_eq!(
             super::parse_color_keyword("black"),
-            Ok(Color::RGBA(RGBA::new(0, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::from_ints(0, 0, 0, 255)))
         );
         assert_eq!(
             super::parse_color_keyword("white"),
-            Ok(Color::RGBA(RGBA::new(255, 255, 255, 255)))
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 255, 255, 255)))
         );
         assert_eq!(
             super::parse_color_keyword("cyan"),
-            Ok(Color::RGBA(RGBA::new(0, 255, 255, 255)))
+            Ok(Color::SrgbColor(SrgbColor::from_ints(0, 255, 255, 255)))
         );
         assert_eq!(
             super::parse_color_keyword("magenta"),
-            Ok(Color::RGBA(RGBA::new(255, 0, 255, 255)))
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 255, 255)))
         );
         assert_eq!(
             super::parse_color_keyword("red"),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
         );
         assert_eq!(
             super::parse_color_keyword("lightgoldenrodyellow"),
-            Ok(Color::RGBA(RGBA::new(250, 250, 210, 255)))
+            Ok(Color::SrgbColor(SrgbColor::from_ints(250, 250, 210, 255)))
         );
         assert_eq!(
             super::parse_color_keyword("transparent"),
-            Ok(Color::RGBA(RGBA::new(0, 0, 0, 0)))
+            Ok(Color::SrgbColor(SrgbColor::from_ints(0, 0, 0, 0)))
         );
         assert_eq!(
             super::parse_color_keyword("currentcolor"),
-            Ok(Color::CurrentColor)
+            Ok(Color::CurrentColor(CurrentColor))
         );
 
         assert!(super::parse_color_keyword("yellowblue").is_err());
-    }
-
-    #[test]
-    fn color_parse_with() {
-        let component_parser = DefaultComponentParser;
-
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("#abc"))
-            ),
-            Ok(Color::RGBA(RGBA::new(0xAA, 0xBB, 0xCC, 255)))
-        );
-
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("currentcolor"))
-            ),
-            Ok(Color::CurrentColor)
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("transparent"))
-            ),
-            Ok(Color::RGBA(RGBA::new(0, 0, 0, 0)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("red"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(255, 0, 0)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(100%, 0%, 0%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgba(255, 0, 0, 0.5)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgba(100%, 0%, 0%, 50%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(255 0 0)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(100% 0% 0%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(255 0 0 / 0.5)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(100% 0% 0% / 50%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
-        );
-
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0, 100%, 50%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0deg, 100%, 50%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsla(0, 100%, 50%, 0.5)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsla(0deg, 100%, 50%, 50%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0 100% 50%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0deg 100% 50%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0grad 100% 50%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0rad 100% 50%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0turn 100% 50%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0 100% 50% / 0.5)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0deg 100% 50% / 50%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
-        );
-
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0 0% 0%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0deg 0% 0%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0grad 0% 0%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0rad 0% 0%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0turn 0% 0%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 255)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0 0% 0% / 0.5)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0deg 0% 0% / 50%)"))
-            ),
-            Ok(Color::RGBA(RGBA::new(255, 0, 0, 128)))
-        );
-
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("0deg"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgb(255 0 0 / 0deg)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsl(0em 100% 50%)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hwb(0% 0% 0%)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("notafunction(0 0% 0%)"))
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn color_parse() {
-        assert_eq!(
-            Color::parse(&mut Parser::new(&mut ParserInput::new("#abc123"))),
-            Ok(Color::RGBA(RGBA::new(0xAB, 0xC1, 0x23, 255)))
-        );
-    }
-
-    #[test]
-    fn color_clone() {
-        assert_eq!(Color::CurrentColor.clone(), Color::CurrentColor);
-        assert_eq!(
-            Color::RGBA(RGBA::new(0, 0, 0, 255)).clone(),
-            Color::RGBA(RGBA::new(0, 0, 0, 255))
-        );
-    }
-
-    #[test]
-    fn color_clone_from() {
-        let mut target = Color::CurrentColor;
-        target.clone_from(&Color::RGBA(RGBA::new(0, 0, 0, 255)));
-
-        assert_eq!(target, Color::RGBA(RGBA::new(0, 0, 0, 255)));
-
-        target.clone_from(&Color::CurrentColor);
-
-        assert_eq!(target, Color::CurrentColor);
-    }
-
-    #[test]
-    fn color_fmt() {
-        let color = Color::RGBA(RGBA::new(0, 0, 0, 0));
-
-        assert_eq!(
-            format!("{color:?}"),
-            "RGBA(RGBA { red: 0, green: 0, blue: 0, alpha: 0 })"
-        );
-    }
-
-    #[test]
-    fn color_eq() {
-        assert!(Color::CurrentColor == Color::CurrentColor);
-        assert!(Color::RGBA(RGBA::new(255, 0, 0, 255)) == Color::RGBA(RGBA::new(255, 0, 0, 255)));
-    }
-
-    #[test]
-    fn color_ne() {
-        assert!(Color::CurrentColor != Color::RGBA(RGBA::new(255, 0, 0, 255)));
-        assert!(Color::RGBA(RGBA::new(255, 0, 0, 255)) != Color::CurrentColor);
-    }
-
-    #[test]
-    fn color_to_css() {
-        assert_eq!(Color::CurrentColor.to_css_string(), "currentcolor");
-        assert_eq!(
-            Color::RGBA(RGBA::new(255, 0, 0, 255)).to_css_string(),
-            "rgb(255, 0, 0)"
-        );
     }
 
     #[test]
@@ -1465,6 +1947,463 @@ mod tests {
             )
             .unwrap(),
             123.
+        );
+    }
+
+    #[test]
+    fn colorcomponentparser_parse_hue() {
+        assert_eq!(
+            ColorComponentParser::parse_hue(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123")),
+            )
+            .unwrap(),
+            Hue { degrees: 123. }
+        );
+        assert_eq!(
+            ColorComponentParser::parse_hue(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123.456")),
+            )
+            .unwrap(),
+            Hue { degrees: 123.456 }
+        );
+
+        assert_eq!(
+            ColorComponentParser::parse_hue(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123deg")),
+            )
+            .unwrap(),
+            Hue { degrees: 123. }
+        );
+        assert_eq!(
+            ColorComponentParser::parse_hue(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123grad")),
+            )
+            .unwrap(),
+            Hue { degrees: 110.7 }
+        );
+        assert_eq!(
+            ColorComponentParser::parse_hue(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123rad")),
+            )
+            .unwrap(),
+            Hue { degrees: 7047.381 }
+        );
+        assert_eq!(
+            ColorComponentParser::parse_hue(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("123turn")),
+            )
+            .unwrap(),
+            Hue { degrees: 44280. }
+        );
+
+        assert!(ColorComponentParser::parse_hue(
+            &DefaultComponentParser,
+            &mut Parser::new(&mut ParserInput::new("123em"))
+        )
+        .is_err());
+        assert!(ColorComponentParser::parse_hue(
+            &DefaultComponentParser,
+            &mut Parser::new(&mut ParserInput::new("123%"))
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn colorcomponentparser_parse_alpha_value() {
+        assert_eq!(
+            ColorComponentParser::parse_alpha_value(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("0")),
+            )
+            .unwrap(),
+            AlphaValue { number: 0.0 }
+        );
+        assert_eq!(
+            ColorComponentParser::parse_alpha_value(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("0.5")),
+            )
+            .unwrap(),
+            AlphaValue { number: 0.5 }
+        );
+        assert_eq!(
+            ColorComponentParser::parse_alpha_value(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("0.666667")),
+            )
+            .unwrap(),
+            AlphaValue { number: 0.666667 }
+        );
+        assert_eq!(
+            ColorComponentParser::parse_alpha_value(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("1")),
+            )
+            .unwrap(),
+            AlphaValue { number: 1.0 }
+        );
+
+        assert_eq!(
+            ColorComponentParser::parse_alpha_value(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("0%")),
+            )
+            .unwrap(),
+            AlphaValue { number: 0.0 }
+        );
+        assert_eq!(
+            ColorComponentParser::parse_alpha_value(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("50%")),
+            )
+            .unwrap(),
+            AlphaValue { number: 0.5 }
+        );
+        assert_eq!(
+            ColorComponentParser::parse_alpha_value(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("66.6667%")),
+            )
+            .unwrap(),
+            AlphaValue { number: 0.666667 }
+        );
+        assert_eq!(
+            ColorComponentParser::parse_alpha_value(
+                &DefaultComponentParser,
+                &mut Parser::new(&mut ParserInput::new("100%")),
+            )
+            .unwrap(),
+            AlphaValue { number: 1.0 }
+        );
+
+        assert!(ColorComponentParser::parse_alpha_value(
+            &DefaultComponentParser,
+            &mut Parser::new(&mut ParserInput::new("123em"))
+        )
+        .is_err());
+        assert!(ColorComponentParser::parse_alpha_value(
+            &DefaultComponentParser,
+            &mut Parser::new(&mut ParserInput::new("123deg"))
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn color_parse_with() {
+        let component_parser = DefaultComponentParser;
+
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("#abc"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0xAA, 0xBB, 0xCC, 255
+            )))
+        );
+
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("currentcolor"))
+            ),
+            Ok(Color::CurrentColor(CurrentColor))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("transparent"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(0, 0, 0, 0)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("red"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(255, 0, 0)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(100%, 0%, 0%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgba(255, 0, 0, 0.5)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgba(100%, 0%, 0%, 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(255 0 0)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(100% 0% 0%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(255 0 0 / 0.5)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(100% 0% 0% / 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+        );
+
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0, 100%, 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0deg, 100%, 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsla(0, 100%, 50%, 0.5)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsla(0deg, 100%, 50%, 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0 100% 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0deg 100% 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0grad 100% 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0rad 100% 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0turn 100% 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0 100% 50% / 0.5)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0deg 100% 50% / 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+        );
+
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0 0% 0%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0deg 0% 0%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0grad 0% 0%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0rad 0% 0%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0turn 0% 0%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0 0% 0% / 0.5)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0deg 0% 0% / 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+        );
+
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("0deg"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgb(255 0 0 / 0deg)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsl(0em 100% 50%)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hwb(0% 0% 0%)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("notafunction(0 0% 0%)"))
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn color_parse() {
+        assert_eq!(
+            Color::parse(&mut Parser::new(&mut ParserInput::new("#abc123"))),
+            Ok(Color::SrgbColor(SrgbColor::from_ints(
+                0xAB, 0xC1, 0x23, 255
+            )))
+        );
+    }
+
+    #[test]
+    fn color_clone() {
+        assert_eq!(
+            Color::CurrentColor(CurrentColor).clone(),
+            Color::CurrentColor(CurrentColor)
+        );
+        assert_eq!(
+            Color::SrgbColor(SrgbColor::from_ints(0, 0, 0, 255)).clone(),
+            Color::SrgbColor(SrgbColor::from_ints(0, 0, 0, 255))
+        );
+    }
+
+    #[test]
+    fn color_clone_from() {
+        let mut target = Color::CurrentColor(CurrentColor);
+        target.clone_from(&Color::SrgbColor(SrgbColor::from_ints(0, 0, 0, 255)));
+
+        assert_eq!(target, Color::SrgbColor(SrgbColor::from_ints(0, 0, 0, 255)));
+
+        target.clone_from(&Color::CurrentColor(CurrentColor));
+
+        assert_eq!(target, Color::CurrentColor(CurrentColor));
+    }
+
+    #[test]
+    fn color_fmt() {
+        let color = Color::SrgbColor(SrgbColor::from_ints(0, 0, 0, 0));
+
+        assert_eq!(
+            format!("{color:?}"),
+            "SrgbColor(Rgb { red: Some(0.0), green: Some(0.0), blue: Some(0.0), alpha: Some(AlphaValue { number: 0.0 }) })"
+        );
+    }
+
+    #[test]
+    fn color_eq() {
+        assert!(Color::CurrentColor(CurrentColor) == Color::CurrentColor(CurrentColor));
+        assert!(
+            Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255))
+                == Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255))
+        );
+    }
+
+    #[test]
+    fn color_ne() {
+        assert!(
+            Color::CurrentColor(CurrentColor)
+                != Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255))
+        );
+        assert!(
+            Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255))
+                != Color::CurrentColor(CurrentColor)
         );
     }
 

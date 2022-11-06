@@ -9,15 +9,17 @@ use encoding_rs;
 use matches::matches;
 use serde_json::{self, json, Map, Value};
 
+use crate::color::{CurrentColor, SrgbColor};
+
 #[cfg(feature = "bench")]
 use self::test::Bencher;
 
 use super::{
     parse_important, parse_nth, parse_one_declaration, parse_one_rule, stylesheet_encoding,
-    AtRuleParser, BasicParseError, BasicParseErrorKind, Color, CowRcStr,
-    DeclarationListParser, DeclarationParser, Delimiter, EncodingSupport, ParseError,
-    ParseErrorKind, Parser, ParserInput, ParserState, QualifiedRuleParser, RuleListParser,
-    SourceLocation, ToCss, Token, TokenSerializationType, UnicodeRange, RGBA,
+    AtRuleParser, BasicParseError, BasicParseErrorKind, Color, CowRcStr, DeclarationListParser,
+    DeclarationParser, Delimiter, EncodingSupport, ParseError, ParseErrorKind, Parser, ParserInput,
+    ParserState, QualifiedRuleParser, RuleListParser, SourceLocation, ToCss, Token,
+    TokenSerializationType, UnicodeRange, RGBA,
 };
 
 macro_rules! JArray {
@@ -521,25 +523,25 @@ fn serialize_bad_tokens() {
 
 #[test]
 fn serialize_current_color() {
-    let c = Color::CurrentColor;
+    let c = CurrentColor;
     assert!(c.to_css_string() == "currentcolor");
 }
 
 #[test]
 fn serialize_rgb_full_alpha() {
-    let c = Color::RGBA(RGBA::new(255, 230, 204, 255));
+    let c = SrgbColor::from_ints(255, 230, 204, 255);
     assert_eq!(c.to_css_string(), "rgb(255, 230, 204)");
 }
 
 #[test]
 fn serialize_rgba() {
-    let c = Color::RGBA(RGBA::new(26, 51, 77, 32));
+    let c = SrgbColor::from_ints(26, 51, 77, 32);
     assert_eq!(c.to_css_string(), "rgba(26, 51, 77, 0.125)");
 }
 
 #[test]
 fn serialize_rgba_two_digit_float_if_roundtrips() {
-    let c = Color::RGBA(RGBA::from_floats(0., 0., 0., 0.5));
+    let c = SrgbColor::from_rgba(RGBA::from_floats(0., 0., 0., 0.5));
     assert_eq!(c.to_css_string(), "rgba(0, 0, 0, 0.5)");
 }
 
@@ -831,8 +833,11 @@ where
 impl ToJson for Color {
     fn to_json(&self) -> Value {
         match *self {
-            Color::RGBA(ref rgba) => json!([rgba.red, rgba.green, rgba.blue, rgba.alpha]),
-            Color::CurrentColor => "currentcolor".to_json(),
+            Color::SrgbColor(ref srgb_color) => {
+                let rgba = srgb_color.to_rgba();
+                json!([rgba.red, rgba.green, rgba.blue, rgba.alpha])
+            }
+            Color::CurrentColor(CurrentColor) => "currentcolor".to_json(),
         }
     }
 }
@@ -951,7 +956,11 @@ impl<'i> AtRuleParser<'i> for JsonParser {
         }
     }
 
-    fn rule_without_block(&mut self, mut prelude: Vec<Value>, _: &ParserState) -> Result<Value, ()> {
+    fn rule_without_block(
+        &mut self,
+        mut prelude: Vec<Value>,
+        _: &ParserState,
+    ) -> Result<Value, ()> {
         prelude.push(Value::Null);
         Ok(Value::Array(prelude))
     }
