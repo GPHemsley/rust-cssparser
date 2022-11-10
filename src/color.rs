@@ -5,8 +5,6 @@
 use std::f64::consts::PI;
 use std::fmt;
 
-use crate::CowRcStr;
-
 use super::{BasicParseError, ParseError, Parser, ToCss, Token};
 
 #[cfg(feature = "serde")]
@@ -113,12 +111,26 @@ pub struct Hue {
     pub degrees: f32,
 }
 
+impl Hue {
+    /// Construct a new Hue from a number of degrees.
+    pub fn new(degrees: f32) -> Self {
+        Self { degrees }
+    }
+}
+
 /// <alpha-value>
 /// https://w3c.github.io/csswg-drafts/css-color-4/#alpha-syntax
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct AlphaValue {
     /// The value as a number in the range of 0 to 1.
     pub number: f32,
+}
+
+impl AlphaValue {
+    /// Construct a new AlphaValue from a number in the range of 0 to 1.
+    pub fn new(number: f32) -> Self {
+        Self { number }
+    }
 }
 
 /// A color in the sRGB color space.
@@ -211,9 +223,17 @@ impl SrgbColor {
             Some(red as f64 / 255.),
             Some(green as f64 / 255.),
             Some(blue as f64 / 255.),
-            Some(AlphaValue {
-                number: alpha as f32 / 255.,
-            }),
+            Some(AlphaValue::new(alpha as f32 / 255.)),
+        )
+    }
+
+    /// Construct an sRGB color from channels represented as floats in the range 0 to 1.
+    pub fn from_floats(red: f64, green: f64, blue: f64, alpha: f32) -> Self {
+        Self::new(
+            Some(red),
+            Some(green),
+            Some(blue),
+            Some(AlphaValue::new(alpha)),
         )
     }
 
@@ -229,7 +249,7 @@ impl SrgbColor {
                 red.unwrap_or(0.),
                 green.unwrap_or(0.),
                 blue.unwrap_or(0.),
-                alpha.unwrap_or(AlphaValue { number: 0. }).number,
+                alpha.unwrap_or(AlphaValue::new(0.)).number,
             ),
             Self::Hsl {
                 hue,
@@ -238,7 +258,7 @@ impl SrgbColor {
                 alpha,
             } => {
                 let (r, g, b) = hsl_to_rgb(
-                    hue.unwrap_or(Hue { degrees: 0. }).degrees,
+                    hue.unwrap_or(Hue::new(0.)).degrees,
                     saturation.unwrap_or(0.),
                     lightness.unwrap_or(0.),
                 );
@@ -246,7 +266,7 @@ impl SrgbColor {
                     r as f64,
                     g as f64,
                     b as f64,
-                    alpha.unwrap_or(AlphaValue { number: 0. }).number,
+                    alpha.unwrap_or(AlphaValue::new(0.)).number,
                 )
             }
             Self::Hwb {
@@ -256,7 +276,7 @@ impl SrgbColor {
                 alpha,
             } => {
                 let (r, g, b) = hwb_to_rgb(
-                    hue.unwrap_or(Hue { degrees: 0. }).degrees,
+                    hue.unwrap_or(Hue::new(0.)).degrees,
                     whiteness.unwrap_or(0.),
                     blackness.unwrap_or(0.),
                 );
@@ -264,7 +284,7 @@ impl SrgbColor {
                     r as f64,
                     g as f64,
                     b as f64,
-                    alpha.unwrap_or(AlphaValue { number: 0. }).number,
+                    alpha.unwrap_or(AlphaValue::new(0.)).number,
                 )
             }
         }
@@ -332,7 +352,7 @@ impl ToCss for NamedColor {
     where
         W: fmt::Write,
     {
-        self.value.to_css(dest)
+        dest.write_str(self.name.as_str())
     }
 }
 
@@ -431,7 +451,7 @@ pub trait ColorComponentParser<'i> {
     ) -> Result<Hue, ParseError<'i, Self::Error>> {
         let location = input.current_source_location();
         Ok(match *input.next()? {
-            Token::Number { value: degrees, .. } => Hue { degrees },
+            Token::Number { value: degrees, .. } => Hue::new(degrees),
             Token::Dimension {
                 value: v, ref unit, ..
             } => {
@@ -446,9 +466,7 @@ pub trait ColorComponentParser<'i> {
                     _ => return Err(location.new_unexpected_token_error(Token::Ident(unit.clone()))),
                 };
 
-                Hue {
-                    degrees: degrees as f32,
-                }
+                Hue::new(degrees as f32)
             }
             ref t => return Err(location.new_unexpected_token_error(t.clone())),
         })
@@ -462,10 +480,10 @@ pub trait ColorComponentParser<'i> {
     ) -> Result<AlphaValue, ParseError<'i, Self::Error>> {
         let location = input.current_source_location();
         Ok(match *input.next()? {
-            Token::Number { value: number, .. } => AlphaValue { number },
+            Token::Number { value: number, .. } => AlphaValue::new(number),
             Token::Percentage {
                 unit_value: number, ..
-            } => AlphaValue { number },
+            } => AlphaValue::new(number),
             ref t => return Err(location.new_unexpected_token_error(t.clone())),
         })
     }
@@ -495,7 +513,7 @@ impl Color {
             Token::Function(ref name) => {
                 let name = name.clone();
                 return input.parse_nested_block(|arguments| {
-                    parse_color_function(component_parser, &*name, arguments)
+                    Self::parse_color_function(component_parser, &*name, arguments)
                 });
             }
             _ => Err(()),
@@ -559,7 +577,7 @@ impl Color {
     ///
     /// https://w3c.github.io/csswg-drafts/css-color-4/#color-keywords
     #[inline]
-    pub fn parse_color_keyword(ident: &str) -> Result<Color, ()> {
+    pub fn parse_color_keyword(ident: &str) -> Result<Self, ()> {
         macro_rules! rgb {
             ($red: expr, $green: expr, $blue: expr) => {
                 RGBA {
@@ -775,6 +793,28 @@ impl Color {
             },
         }
     }
+
+    /// https://w3c.github.io/csswg-drafts/css-color-4/#color-functions
+    #[inline]
+    pub fn parse_color_function<'i, 't, ComponentParser>(
+        component_parser: &ComponentParser,
+        name: &str,
+        arguments: &mut Parser<'i, 't>,
+    ) -> Result<Self, ParseError<'i, ComponentParser::Error>>
+    where
+        ComponentParser: ColorComponentParser<'i>,
+    {
+        let color = match_ignore_ascii_case! { name,
+            "rgb" | "rgba" => parse_rgb(component_parser, arguments)?,
+            "hsl" | "hsla" => parse_hsl(component_parser, arguments)?,
+            "hwb" => parse_hwb(component_parser, arguments)?,
+            _ => return Err(arguments.new_unexpected_token_error(Token::Ident(name.to_owned().into()))),
+        };
+
+        arguments.expect_exhausted()?;
+
+        Ok(color)
+    }
 }
 
 #[inline]
@@ -810,237 +850,158 @@ fn clamp_floor_256_f32(val: f32) -> u8 {
 }
 
 #[inline]
-fn parse_color_function<'i, 't, ComponentParser>(
-    component_parser: &ComponentParser,
-    name: &str,
-    arguments: &mut Parser<'i, 't>,
-) -> Result<Color, ParseError<'i, ComponentParser::Error>>
-where
-    ComponentParser: ColorComponentParser<'i>,
-{
-    let (red, green, blue, alpha) = match_ignore_ascii_case! { name,
-        "rgb" | "rgba" => parse_rgb_components_rgb(component_parser, arguments)?,
-        "hsl" | "hsla" => parse_rgb_components_hsl(component_parser, arguments)?,
-        "hwb" => parse_rgb_components_hwb(component_parser, arguments)?,
-        _ => return Err(arguments.new_unexpected_token_error(Token::Ident(name.to_owned().into()))),
-    };
-
-    arguments.expect_exhausted()?;
-    Ok(rgba(red, green, blue, alpha))
-}
-
-#[inline]
 fn parse_alpha_component<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
     arguments: &mut Parser<'i, 't>,
-) -> Result<f32, ParseError<'i, ComponentParser::Error>>
+    use_legacy_syntax: bool,
+) -> Result<AlphaValue, ParseError<'i, ComponentParser::Error>>
 where
     ComponentParser: ColorComponentParser<'i>,
 {
     Ok(if !arguments.is_exhausted() {
-        arguments.expect_delim('/')?;
+        if use_legacy_syntax {
+            arguments.expect_comma()?;
+        } else {
+            arguments.expect_delim('/')?;
+        }
 
-        component_parser.parse_alpha_value(arguments)?.number
+        component_parser.parse_alpha_value(arguments)?
     } else {
-        1.
+        AlphaValue::new(1.)
     })
 }
 
 /// https://w3c.github.io/csswg-drafts/css-color-4/#rgb-functions
 #[inline]
-fn parse_rgb_components_rgb<'i, 't, ComponentParser>(
+fn parse_rgb<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
     arguments: &mut Parser<'i, 't>,
-) -> Result<(u8, u8, u8, u8), ParseError<'i, ComponentParser::Error>>
+) -> Result<Color, ParseError<'i, ComponentParser::Error>>
 where
     ComponentParser: ColorComponentParser<'i>,
 {
     // Try to parse legacy syntax first.
-    let legacy_syntax_result = arguments.try_parse(|input| {
-        input.parse_entirely(|input| {
-            // Determine whether this is the number syntax or the percentage syntax.
-            let red_number = input.try_parse(|input| input.expect_number());
-
-            let red;
-            let green;
-            let blue;
-            if red_number.is_ok() {
-                red = clamp_floor_256_f32(red_number?);
-
-                input.expect_comma()?;
-
-                green = clamp_floor_256_f32(input.expect_number()?);
-
-                input.expect_comma()?;
-
-                blue = clamp_floor_256_f32(input.expect_number()?);
-            } else {
-                red = clamp_unit_f32(input.expect_percentage()?);
-
-                input.expect_comma()?;
-
-                green = clamp_unit_f32(input.expect_percentage()?);
-
-                input.expect_comma()?;
-
-                blue = clamp_unit_f32(input.expect_percentage()?);
-            }
-
-            let alpha;
-            if !input.is_exhausted() {
-                input.expect_comma()?;
-
-                alpha = clamp_unit_f32(component_parser.parse_alpha_value(input)?.number);
-            } else {
-                alpha = clamp_unit_f32(1.);
-            }
-
-            Ok((red, green, blue, alpha))
-        })
-    });
-
-    if legacy_syntax_result.is_ok() {
-        return legacy_syntax_result;
-    }
-
     // Determine whether this is the number syntax or the percentage syntax.
-    let number_result: Result<
-        (f32, f32, f32),
-        ParseError<<ComponentParser as ColorComponentParser>::Error>,
-    > = arguments.try_parse(|input| {
-        let red_number = component_parser.parse_number(input)?;
-        let green_number = component_parser.parse_number(input)?;
-        let blue_number = component_parser.parse_number(input)?;
+    arguments
+        .try_parse(|input| {
+            let red = Some(component_parser.parse_number(input)? as f64 / 255.);
 
-        Ok((red_number, green_number, blue_number))
-    });
+            input.expect_comma()?;
 
-    let computed_red;
-    let computed_green;
-    let computed_blue;
-    if number_result.is_ok() {
-        let (red_number, green_number, blue_number) = number_result?;
+            let green = Some(component_parser.parse_number(input)? as f64 / 255.);
 
-        computed_red = clamp_floor_256_f32(red_number);
-        computed_green = clamp_floor_256_f32(green_number);
-        computed_blue = clamp_floor_256_f32(blue_number);
-    } else {
-        let red_percentage = component_parser.parse_percentage(arguments)?;
-        let green_percentage = component_parser.parse_percentage(arguments)?;
-        let blue_percentage = component_parser.parse_percentage(arguments)?;
+            input.expect_comma()?;
 
-        computed_red = clamp_unit_f32(red_percentage);
-        computed_green = clamp_unit_f32(green_percentage);
-        computed_blue = clamp_unit_f32(blue_percentage);
-    }
+            let blue = Some(component_parser.parse_number(input)? as f64 / 255.);
 
-    let computed_alpha = clamp_unit_f32(parse_alpha_component(component_parser, arguments)?);
+            let alpha = Some(parse_alpha_component(component_parser, input, true)?);
 
-    Ok((computed_red, computed_green, computed_blue, computed_alpha))
-}
+            Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(SrgbColor::new(
+                red, green, blue, alpha,
+            )))
+        })
+        .or(arguments.try_parse(|input| {
+            let red = Some(component_parser.parse_percentage(input)? as f64);
 
-#[inline]
-fn fix_hue_rounding_errors(value: f32) -> f32 {
-    // Subtract an integer before rounding, to avoid some rounding errors.
-    (value - 360. * (value / 360.).floor()) / 360.
+            input.expect_comma()?;
+
+            let green = Some(component_parser.parse_percentage(input)? as f64);
+
+            input.expect_comma()?;
+
+            let blue = Some(component_parser.parse_percentage(input)? as f64);
+
+            let alpha = Some(parse_alpha_component(component_parser, input, true)?);
+
+            Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(SrgbColor::new(
+                red, green, blue, alpha,
+            )))
+        }))
+        .or(arguments.try_parse(|input| {
+            let red = Some(component_parser.parse_number(input)? as f64 / 255.);
+            let green = Some(component_parser.parse_number(input)? as f64 / 255.);
+            let blue = Some(component_parser.parse_number(input)? as f64 / 255.);
+            let alpha = Some(parse_alpha_component(component_parser, input, false)?);
+
+            Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(SrgbColor::new(
+                red, green, blue, alpha,
+            )))
+        }))
+        .or(arguments.try_parse(|input| {
+            let red = Some(component_parser.parse_percentage(input)? as f64);
+            let green = Some(component_parser.parse_percentage(input)? as f64);
+            let blue = Some(component_parser.parse_percentage(input)? as f64);
+            let alpha = Some(parse_alpha_component(component_parser, input, false)?);
+
+            Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(SrgbColor::new(
+                red, green, blue, alpha,
+            )))
+        }))
 }
 
 /// https://w3c.github.io/csswg-drafts/css-color-4/#the-hsl-notation
 #[inline]
-fn parse_rgb_components_hsl<'i, 't, ComponentParser>(
+fn parse_hsl<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
     arguments: &mut Parser<'i, 't>,
-) -> Result<(u8, u8, u8, u8), ParseError<'i, ComponentParser::Error>>
+) -> Result<Color, ParseError<'i, ComponentParser::Error>>
 where
     ComponentParser: ColorComponentParser<'i>,
 {
     // Try to parse legacy syntax first.
-    let legacy_syntax_result = arguments.try_parse(|input| {
-        input.parse_entirely(|input| {
-            let computed_hue = fix_hue_rounding_errors(component_parser.parse_hue(input)?.degrees);
+    arguments
+        .try_parse(|input| {
+            let hue = Some(component_parser.parse_hue(input)?);
 
             input.expect_comma()?;
 
-            let computed_saturation = input.expect_percentage()?;
+            let saturation = Some(input.expect_percentage()?);
 
             input.expect_comma()?;
 
-            let computed_lightness = input.expect_percentage()?;
+            let lightness = Some(input.expect_percentage()?);
 
-            let computed_alpha;
-            if !input.is_exhausted() {
-                input.expect_comma()?;
+            let alpha = Some(parse_alpha_component(component_parser, input, true)?);
 
-                computed_alpha = component_parser.parse_alpha_value(input)?.number;
-            } else {
-                computed_alpha = 1.;
-            }
-
-            Ok((
-                computed_hue,
-                computed_saturation,
-                computed_lightness,
-                computed_alpha,
+            Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(
+                SrgbColor::with_hsl(hue, saturation, lightness, alpha),
             ))
         })
-    });
+        .or(arguments.try_parse(|input| {
+            let hue = Some(component_parser.parse_hue(input)?);
 
-    let computed_hue;
-    let computed_saturation;
-    let computed_lightness;
-    let computed_alpha;
-    if legacy_syntax_result.is_ok() {
-        (
-            computed_hue,
-            computed_saturation,
-            computed_lightness,
-            computed_alpha,
-        ) = legacy_syntax_result?;
-    } else {
-        computed_hue = fix_hue_rounding_errors(component_parser.parse_hue(arguments)?.degrees);
+            let saturation = Some(component_parser.parse_percentage(input)?);
 
-        computed_saturation = component_parser.parse_percentage(arguments)?.clamp(0., 1.);
+            let lightness = Some(component_parser.parse_percentage(input)?);
 
-        computed_lightness = component_parser.parse_percentage(arguments)?.clamp(0., 1.);
+            let alpha = Some(parse_alpha_component(component_parser, input, false)?);
 
-        computed_alpha = parse_alpha_component(component_parser, arguments)?;
-    }
-
-    let (red, green, blue) = hsl_to_rgb(computed_hue, computed_saturation, computed_lightness);
-
-    Ok((
-        clamp_unit_f32(red),
-        clamp_unit_f32(green),
-        clamp_unit_f32(blue),
-        clamp_unit_f32(computed_alpha),
-    ))
+            Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(
+                SrgbColor::with_hsl(hue, saturation, lightness, alpha),
+            ))
+        }))
 }
 
 /// https://w3c.github.io/csswg-drafts/css-color-4/#the-hwb-notation
 #[inline]
-fn parse_rgb_components_hwb<'i, 't, ComponentParser>(
+fn parse_hwb<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
     arguments: &mut Parser<'i, 't>,
-) -> Result<(u8, u8, u8, u8), ParseError<'i, ComponentParser::Error>>
+) -> Result<Color, ParseError<'i, ComponentParser::Error>>
 where
     ComponentParser: ColorComponentParser<'i>,
 {
-    let computed_hue = fix_hue_rounding_errors(component_parser.parse_hue(arguments)?.degrees);
+    let hue = Some(component_parser.parse_hue(arguments)?);
 
-    let computed_whiteness = component_parser.parse_percentage(arguments)?.clamp(0., 1.);
+    let whiteness = Some(component_parser.parse_percentage(arguments)?);
 
-    let computed_blackness = component_parser.parse_percentage(arguments)?.clamp(0., 1.);
+    let blackness = Some(component_parser.parse_percentage(arguments)?);
 
-    let computed_alpha = parse_alpha_component(component_parser, arguments)?;
+    let alpha = Some(parse_alpha_component(component_parser, arguments, false)?);
 
-    let (red, green, blue) = hwb_to_rgb(computed_hue, computed_whiteness, computed_blackness);
-
-    Ok((
-        clamp_unit_f32(red),
-        clamp_unit_f32(green),
-        clamp_unit_f32(blue),
-        clamp_unit_f32(computed_alpha),
-    ))
+    Ok(Color::SrgbColor(SrgbColor::with_hwb(
+        hue, whiteness, blackness, alpha,
+    )))
 }
 
 /// https://w3c.github.io/csswg-drafts/css-color-4/#hwb-to-rgb
@@ -1095,10 +1056,11 @@ pub fn hsl_to_rgb(hue: f32, saturation: f32, lightness: f32) -> (f32, f32, f32) 
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        color::{CurrentColor, DefaultComponentParser, SrgbColor},
-        AlphaValue, Color, ColorComponentParser, DeprecatedColor, Hue, NamedColor, Parser,
-        ParserInput, SystemColor, ToCss, RGBA,
+    use crate::ParserInput;
+
+    use super::{
+        AlphaValue, Color, ColorComponentParser, CurrentColor, DefaultComponentParser,
+        DeprecatedColor, Hue, NamedColor, Parser, SrgbColor, SystemColor, ToCss, RGBA,
     };
 
     #[test]
@@ -1320,6 +1282,13 @@ mod tests {
     }
 
     #[test]
+    fn hue_new() {
+        assert_eq!(Hue::new(0.), Hue { degrees: 0. });
+        assert_eq!(Hue::new(47.5), Hue { degrees: 47.5 });
+        assert_eq!(Hue::new(360.), Hue { degrees: 360. });
+    }
+
+    #[test]
     fn alphavalue_clone() {
         assert_eq!(
             AlphaValue { number: 0.0 }.clone(),
@@ -1366,6 +1335,13 @@ mod tests {
     fn alphavalue_ne() {
         assert!(AlphaValue { number: 0.0 } != AlphaValue { number: 0.5 });
         assert!(AlphaValue { number: 0.5 } != AlphaValue { number: 0.0 });
+    }
+
+    #[test]
+    fn alphavalue_new() {
+        assert_eq!(AlphaValue::new(0.0), AlphaValue { number: 0.0 });
+        assert_eq!(AlphaValue::new(0.123), AlphaValue { number: 0.123 });
+        assert_eq!(AlphaValue::new(1.0), AlphaValue { number: 1.0 });
     }
 
     #[test]
@@ -1642,6 +1618,37 @@ mod tests {
     }
 
     #[test]
+    fn srgbcolor_from_floats() {
+        assert_eq!(
+            SrgbColor::from_floats(0.1, 0.2, 0.3, 0.4),
+            SrgbColor::Rgb {
+                red: Some(0.1),
+                green: Some(0.2),
+                blue: Some(0.3),
+                alpha: Some(AlphaValue { number: 0.4 })
+            }
+        );
+        assert_eq!(
+            SrgbColor::from_floats(0.5, 0.5, 0.5, 0.5),
+            SrgbColor::Rgb {
+                red: Some(0.5),
+                green: Some(0.5),
+                blue: Some(0.5),
+                alpha: Some(AlphaValue { number: 0.5 })
+            }
+        );
+        assert_eq!(
+            SrgbColor::from_floats(1.0, 1.0, 1.0, 1.0),
+            SrgbColor::Rgb {
+                red: Some(1.0),
+                green: Some(1.0),
+                blue: Some(1.0),
+                alpha: Some(AlphaValue { number: 1.0 })
+            }
+        );
+    }
+
+    #[test]
     fn srgbcolor_to_floats() {
         assert_eq!(
             SrgbColor::Rgb {
@@ -1810,6 +1817,245 @@ mod tests {
     }
 
     #[test]
+    fn namedcolor_clone() {
+        assert_eq!(
+            NamedColor::new(String::from("red"), SrgbColor::from_ints(255, 0, 0, 255)).clone(),
+            NamedColor::new(String::from("red"), SrgbColor::from_ints(255, 0, 0, 255))
+        );
+    }
+
+    #[test]
+    fn namedcolor_clone_from() {
+        let mut target = NamedColor::new(String::from("red"), SrgbColor::from_ints(255, 0, 0, 255));
+
+        target.clone_from(&NamedColor::new(
+            String::from("blue"),
+            SrgbColor::from_ints(0, 0, 255, 255),
+        ));
+
+        assert_eq!(
+            target,
+            NamedColor::new(String::from("blue"), SrgbColor::from_ints(0, 0, 255, 255))
+        );
+    }
+
+    #[test]
+    fn namedcolor_fmt() {
+        assert_eq!(
+            format!(
+                "{:?}",
+                NamedColor::new(String::from("red"), SrgbColor::from_ints(255, 0, 0, 255))
+            ),
+            "NamedColor { name: \"red\", value: Rgb { red: Some(1.0), green: Some(0.0), blue: Some(0.0), alpha: Some(AlphaValue { number: 1.0 }) } }"
+        );
+    }
+
+    #[test]
+    fn namedcolor_eq() {
+        assert!(
+            NamedColor::new(String::from("red"), SrgbColor::from_ints(255, 0, 0, 255))
+                == NamedColor::new(String::from("red"), SrgbColor::from_ints(255, 0, 0, 255))
+        );
+        assert!(
+            NamedColor::new(String::from("blue"), SrgbColor::from_ints(0, 0, 255, 255))
+                == NamedColor::new(String::from("blue"), SrgbColor::from_ints(0, 0, 255, 255))
+        );
+    }
+
+    #[test]
+    fn namedcolor_ne() {
+        assert!(
+            NamedColor::new(String::from("red"), SrgbColor::from_ints(255, 0, 0, 255))
+                != NamedColor::new(String::from("blue"), SrgbColor::from_ints(0, 0, 255, 255))
+        );
+        assert!(
+            NamedColor::new(String::from("blue"), SrgbColor::from_ints(0, 0, 255, 255))
+                != NamedColor::new(String::from("red"), SrgbColor::from_ints(255, 0, 0, 255))
+        );
+    }
+
+    #[test]
+    fn namedcolor_new() {
+        assert_eq!(
+            NamedColor::new(String::from("red"), SrgbColor::from_ints(255, 0, 0, 255)),
+            NamedColor {
+                name: "red".to_string(),
+                value: SrgbColor::from_ints(255, 0, 0, 255)
+            }
+        );
+    }
+
+    #[test]
+    fn namedcolor_to_css() {
+        assert_eq!(
+            NamedColor::new("black".to_string(), SrgbColor::from_ints(0, 0, 0, 255))
+                .to_css_string(),
+            "black"
+        );
+    }
+
+    #[test]
+    fn systemcolor_clone() {
+        assert_eq!(
+            SystemColor::new(String::from("canvas")).clone(),
+            SystemColor::new(String::from("canvas"))
+        );
+    }
+
+    #[test]
+    fn systemcolor_clone_from() {
+        let mut target = SystemColor::new(String::from("canvas"));
+
+        target.clone_from(&SystemColor::new(String::from("field")));
+
+        assert_eq!(target, SystemColor::new(String::from("field")));
+    }
+
+    #[test]
+    fn systemcolor_fmt() {
+        assert_eq!(
+            format!("{:?}", SystemColor::new(String::from("canvas"))),
+            "SystemColor { name: \"canvas\" }"
+        );
+    }
+
+    #[test]
+    fn systemcolor_eq() {
+        assert!(
+            SystemColor::new(String::from("canvas")) == SystemColor::new(String::from("canvas"))
+        );
+        assert!(SystemColor::new(String::from("field")) == SystemColor::new(String::from("field")));
+    }
+
+    #[test]
+    fn systemcolor_ne() {
+        assert!(
+            SystemColor::new(String::from("canvas")) != SystemColor::new(String::from("field"))
+        );
+        assert!(
+            SystemColor::new(String::from("field")) != SystemColor::new(String::from("canvas"))
+        );
+    }
+
+    #[test]
+    fn systemcolor_new() {
+        assert_eq!(
+            SystemColor::new(String::from("canvas")),
+            SystemColor {
+                name: "canvas".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn deprecatedcolor_clone() {
+        assert_eq!(
+            DeprecatedColor::new(
+                String::from("background"),
+                SystemColor::new(String::from("canvas"))
+            )
+            .clone(),
+            DeprecatedColor::new(
+                String::from("background"),
+                SystemColor::new(String::from("canvas"))
+            )
+        );
+    }
+
+    #[test]
+    fn deprecatedcolor_clone_from() {
+        let mut target = DeprecatedColor::new(
+            String::from("background"),
+            SystemColor::new(String::from("canvas")),
+        );
+
+        target.clone_from(&DeprecatedColor::new(
+            String::from("activeborder"),
+            SystemColor::new(String::from("buttonborder")),
+        ));
+
+        assert_eq!(
+            target,
+            DeprecatedColor::new(
+                String::from("activeborder"),
+                SystemColor::new(String::from("buttonborder"))
+            )
+        );
+    }
+
+    #[test]
+    fn deprecatedcolor_fmt() {
+        assert_eq!(
+            format!(
+                "{:?}",
+                DeprecatedColor::new(
+                    String::from("background"),
+                    SystemColor::new(String::from("canvas"))
+                )
+            ),
+            "DeprecatedColor { name: \"background\", same_as: SystemColor { name: \"canvas\" } }"
+        );
+    }
+
+    #[test]
+    fn deprecatedcolor_eq() {
+        assert!(
+            DeprecatedColor::new(
+                String::from("background"),
+                SystemColor::new(String::from("canvas"))
+            ) == DeprecatedColor::new(
+                String::from("background"),
+                SystemColor::new(String::from("canvas"))
+            )
+        );
+        assert!(
+            DeprecatedColor::new(
+                String::from("activeborder"),
+                SystemColor::new(String::from("buttonborder"))
+            ) == DeprecatedColor::new(
+                String::from("activeborder"),
+                SystemColor::new(String::from("buttonborder"))
+            )
+        );
+    }
+
+    #[test]
+    fn deprecatedcolor_ne() {
+        assert!(
+            DeprecatedColor::new(
+                String::from("background"),
+                SystemColor::new(String::from("canvas"))
+            ) != DeprecatedColor::new(
+                String::from("activeborder"),
+                SystemColor::new(String::from("buttonborder"))
+            )
+        );
+        assert!(
+            DeprecatedColor::new(
+                String::from("activeborder"),
+                SystemColor::new(String::from("buttonborder"))
+            ) != DeprecatedColor::new(
+                String::from("background"),
+                SystemColor::new(String::from("canvas"))
+            )
+        );
+    }
+
+    #[test]
+    fn deprecatedcolor_new() {
+        assert_eq!(
+            DeprecatedColor::new(
+                String::from("background"),
+                SystemColor::new(String::from("canvas"))
+            ),
+            DeprecatedColor {
+                name: "background".to_string(),
+                same_as: SystemColor::new(String::from("canvas"))
+            }
+        );
+    }
+
+    #[test]
     fn currentcolor_clone() {
         assert_eq!(CurrentColor.clone(), CurrentColor);
     }
@@ -1825,7 +2071,7 @@ mod tests {
 
     #[test]
     fn currentcolor_fmt() {
-        assert_eq!(format!("{:?}", CurrentColor), "CurrentColor",);
+        assert_eq!(format!("{:?}", CurrentColor), "CurrentColor");
     }
 
     #[test]
@@ -2237,14 +2483,14 @@ mod tests {
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("rgba(255, 0, 0, 0.5)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+            Ok(Color::SrgbColor(SrgbColor::from_floats(1.0, 0.0, 0.0, 0.5)))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("rgba(100%, 0%, 0%, 50%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+            Ok(Color::SrgbColor(SrgbColor::from_floats(1.0, 0.0, 0.0, 0.5)))
         );
         assert_eq!(
             Color::parse_with(
@@ -2265,14 +2511,14 @@ mod tests {
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("rgb(255 0 0 / 0.5)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+            Ok(Color::SrgbColor(SrgbColor::from_floats(1.0, 0.0, 0.0, 0.5)))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("rgb(100% 0% 0% / 50%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+            Ok(Color::SrgbColor(SrgbColor::from_floats(1.0, 0.0, 0.0, 0.5)))
         );
 
         assert_eq!(
@@ -2280,77 +2526,132 @@ mod tests {
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hsl(0, 100%, 50%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hsl(0deg, 100%, 50%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hsla(0, 100%, 50%, 0.5)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                Some(0.5),
+                Some(AlphaValue::new(0.5))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hsla(0deg, 100%, 50%, 50%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                Some(0.5),
+                Some(AlphaValue::new(0.5))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hsl(0 100% 50%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hsl(0deg 100% 50%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hsl(0grad 100% 50%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hsl(0rad 100% 50%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hsl(0turn 100% 50%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hsl(0 100% 50% / 0.5)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                Some(0.5),
+                Some(AlphaValue::new(0.5))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hsl(0deg 100% 50% / 50%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                Some(0.5),
+                Some(AlphaValue::new(0.5))
+            )))
         );
 
         assert_eq!(
@@ -2358,49 +2659,84 @@ mod tests {
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hwb(0 0% 0%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+                Some(Hue::new(0.)),
+                Some(0.0),
+                Some(0.0),
+                Some(AlphaValue::new(1.0))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hwb(0deg 0% 0%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+                Some(Hue::new(0.)),
+                Some(0.0),
+                Some(0.0),
+                Some(AlphaValue::new(1.0))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hwb(0grad 0% 0%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+                Some(Hue::new(0.)),
+                Some(0.0),
+                Some(0.0),
+                Some(AlphaValue::new(1.0))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hwb(0rad 0% 0%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+                Some(Hue::new(0.)),
+                Some(0.0),
+                Some(0.0),
+                Some(AlphaValue::new(1.0))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hwb(0turn 0% 0%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+                Some(Hue::new(0.)),
+                Some(0.0),
+                Some(0.0),
+                Some(AlphaValue::new(1.0))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hwb(0 0% 0% / 0.5)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+                Some(Hue::new(0.)),
+                Some(0.0),
+                Some(0.0),
+                Some(AlphaValue::new(0.5))
+            )))
         );
         assert_eq!(
             Color::parse_with(
                 &component_parser,
                 &mut Parser::new(&mut ParserInput::new("hwb(0deg 0% 0% / 50%)"))
             ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 128)))
+            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+                Some(Hue::new(0.)),
+                Some(0.0),
+                Some(0.0),
+                Some(AlphaValue::new(0.5))
+            )))
         );
 
         assert!(Color::parse_with(
