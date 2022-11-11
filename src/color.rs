@@ -443,6 +443,22 @@ pub trait ColorComponentParser<'i> {
         input.expect_number().map_err(From::from)
     }
 
+    /// Parse a `none` identifier or run other parse function.
+    fn parse_none_or<'t, T>(
+        &self,
+        other_parse_fn: fn(&Self, &mut Parser<'i, 't>) -> Result<T, ParseError<'i, Self::Error>>,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Option<T>, ParseError<'i, Self::Error>> {
+        if input
+            .try_parse(|input| input.expect_ident_matching("none"))
+            .is_ok()
+        {
+            Ok(None)
+        } else {
+            Ok(Some(other_parse_fn(self, input)?))
+        }
+    }
+
     /// Parse a `<hue>` value.
     /// https://w3c.github.io/csswg-drafts/css-color-4/#typedef-hue
     fn parse_hue<'t>(
@@ -496,8 +512,6 @@ impl<'i> ColorComponentParser<'i> for DefaultComponentParser {
 
 impl Color {
     /// Parse a <color> value, per CSS Color Module Level 3.
-    ///
-    /// FIXME(#2) Deprecated CSS2 System Colors are not supported yet.
     pub fn parse_with<'i, 't, ComponentParser>(
         component_parser: &ComponentParser,
         input: &mut Parser<'i, 't>,
@@ -854,20 +868,25 @@ fn parse_alpha_component<'i, 't, ComponentParser>(
     component_parser: &ComponentParser,
     arguments: &mut Parser<'i, 't>,
     use_legacy_syntax: bool,
-) -> Result<AlphaValue, ParseError<'i, ComponentParser::Error>>
+) -> Result<Option<AlphaValue>, ParseError<'i, ComponentParser::Error>>
 where
     ComponentParser: ColorComponentParser<'i>,
 {
     Ok(if !arguments.is_exhausted() {
         if use_legacy_syntax {
             arguments.expect_comma()?;
+
+            Some(component_parser.parse_alpha_value(arguments)?)
         } else {
             arguments.expect_delim('/')?;
-        }
 
-        component_parser.parse_alpha_value(arguments)?
+            component_parser.parse_none_or(
+                |component_parser, input| component_parser.parse_alpha_value(input),
+                arguments,
+            )?
+        }
     } else {
-        AlphaValue::new(1.)
+        Some(AlphaValue::new(1.))
     })
 }
 
@@ -894,7 +913,7 @@ where
 
             let blue = Some(component_parser.parse_number(input)? as f64 / 255.);
 
-            let alpha = Some(parse_alpha_component(component_parser, input, true)?);
+            let alpha = parse_alpha_component(component_parser, input, true)?;
 
             Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(SrgbColor::new(
                 red, green, blue, alpha,
@@ -911,27 +930,45 @@ where
 
             let blue = Some(component_parser.parse_percentage(input)? as f64);
 
-            let alpha = Some(parse_alpha_component(component_parser, input, true)?);
+            let alpha = parse_alpha_component(component_parser, input, true)?;
 
             Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(SrgbColor::new(
                 red, green, blue, alpha,
             )))
         }))
         .or(arguments.try_parse(|input| {
-            let red = Some(component_parser.parse_number(input)? as f64 / 255.);
-            let green = Some(component_parser.parse_number(input)? as f64 / 255.);
-            let blue = Some(component_parser.parse_number(input)? as f64 / 255.);
-            let alpha = Some(parse_alpha_component(component_parser, input, false)?);
+            let red = component_parser.parse_none_or(
+                |component_parser, input| Ok(component_parser.parse_number(input)? as f64 / 255.),
+                input,
+            )?;
+            let green = component_parser.parse_none_or(
+                |component_parser, input| Ok(component_parser.parse_number(input)? as f64 / 255.),
+                input,
+            )?;
+            let blue = component_parser.parse_none_or(
+                |component_parser, input| Ok(component_parser.parse_number(input)? as f64 / 255.),
+                input,
+            )?;
+            let alpha = parse_alpha_component(component_parser, input, false)?;
 
             Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(SrgbColor::new(
                 red, green, blue, alpha,
             )))
         }))
         .or(arguments.try_parse(|input| {
-            let red = Some(component_parser.parse_percentage(input)? as f64);
-            let green = Some(component_parser.parse_percentage(input)? as f64);
-            let blue = Some(component_parser.parse_percentage(input)? as f64);
-            let alpha = Some(parse_alpha_component(component_parser, input, false)?);
+            let red = component_parser.parse_none_or(
+                |component_parser, input| Ok(component_parser.parse_percentage(input)? as f64),
+                input,
+            )?;
+            let green = component_parser.parse_none_or(
+                |component_parser, input| Ok(component_parser.parse_percentage(input)? as f64),
+                input,
+            )?;
+            let blue = component_parser.parse_none_or(
+                |component_parser, input| Ok(component_parser.parse_percentage(input)? as f64),
+                input,
+            )?;
+            let alpha = parse_alpha_component(component_parser, input, false)?;
 
             Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(SrgbColor::new(
                 red, green, blue, alpha,
@@ -961,20 +998,29 @@ where
 
             let lightness = Some(input.expect_percentage()?);
 
-            let alpha = Some(parse_alpha_component(component_parser, input, true)?);
+            let alpha = parse_alpha_component(component_parser, input, true)?;
 
             Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(
                 SrgbColor::with_hsl(hue, saturation, lightness, alpha),
             ))
         })
         .or(arguments.try_parse(|input| {
-            let hue = Some(component_parser.parse_hue(input)?);
+            let hue = component_parser.parse_none_or(
+                |component_parser, input| component_parser.parse_hue(input),
+                input,
+            )?;
 
-            let saturation = Some(component_parser.parse_percentage(input)?);
+            let saturation = component_parser.parse_none_or(
+                |component_parser, input| component_parser.parse_percentage(input),
+                input,
+            )?;
 
-            let lightness = Some(component_parser.parse_percentage(input)?);
+            let lightness = component_parser.parse_none_or(
+                |component_parser, input| component_parser.parse_percentage(input),
+                input,
+            )?;
 
-            let alpha = Some(parse_alpha_component(component_parser, input, false)?);
+            let alpha = parse_alpha_component(component_parser, input, false)?;
 
             Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(
                 SrgbColor::with_hsl(hue, saturation, lightness, alpha),
@@ -991,13 +1037,22 @@ fn parse_hwb<'i, 't, ComponentParser>(
 where
     ComponentParser: ColorComponentParser<'i>,
 {
-    let hue = Some(component_parser.parse_hue(arguments)?);
+    let hue = component_parser.parse_none_or(
+        |component_parser, input| component_parser.parse_hue(input),
+        arguments,
+    )?;
 
-    let whiteness = Some(component_parser.parse_percentage(arguments)?);
+    let whiteness = component_parser.parse_none_or(
+        |component_parser, input| component_parser.parse_percentage(input),
+        arguments,
+    )?;
 
-    let blackness = Some(component_parser.parse_percentage(arguments)?);
+    let blackness = component_parser.parse_none_or(
+        |component_parser, input| component_parser.parse_percentage(input),
+        arguments,
+    )?;
 
-    let alpha = Some(parse_alpha_component(component_parser, arguments, false)?);
+    let alpha = parse_alpha_component(component_parser, arguments, false)?;
 
     Ok(Color::SrgbColor(SrgbColor::with_hwb(
         hue, whiteness, blackness, alpha,
@@ -2160,6 +2215,28 @@ mod tests {
     }
 
     #[test]
+    fn colorcomponentparser_parse_none_or() {
+        assert_eq!(
+            ColorComponentParser::parse_none_or(
+                &DefaultComponentParser,
+                |component_parser, input| { component_parser.parse_number(input) },
+                &mut Parser::new(&mut ParserInput::new("none")),
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(
+            ColorComponentParser::parse_none_or(
+                &DefaultComponentParser,
+                |component_parser, input| { component_parser.parse_number(input) },
+                &mut Parser::new(&mut ParserInput::new("0")),
+            )
+            .unwrap(),
+            Some(0.)
+        );
+    }
+
+    #[test]
     fn colorcomponentparser_parse_hue() {
         assert_eq!(
             ColorComponentParser::parse_hue(
@@ -2520,6 +2597,188 @@ mod tests {
             ),
             Ok(Color::SrgbColor(SrgbColor::from_floats(1.0, 0.0, 0.0, 0.5)))
         );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(none none none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                None,
+                None,
+                None,
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(none none none / none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(None, None, None, None)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(255 none none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                Some(1.0),
+                None,
+                None,
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(none 255 none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                None,
+                Some(1.0),
+                None,
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(none none 255)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                None,
+                None,
+                Some(1.0),
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(100% none none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                Some(1.0),
+                None,
+                None,
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(none 100% none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                None,
+                Some(1.0),
+                None,
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgb(none none 100%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                None,
+                None,
+                Some(1.0),
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgba(none none none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                None,
+                None,
+                None,
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgba(none none none / none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(None, None, None, None)))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgba(255 none none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                Some(1.0),
+                None,
+                None,
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgba(none 255 none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                None,
+                Some(1.0),
+                None,
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgba(none none 255)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                None,
+                None,
+                Some(1.0),
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgba(100% none none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                Some(1.0),
+                None,
+                None,
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgba(none 100% none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                None,
+                Some(1.0),
+                None,
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("rgba(none none 100%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::new(
+                None,
+                None,
+                Some(1.0),
+                Some(AlphaValue::new(1.0))
+            )))
+        );
 
         assert_eq!(
             Color::parse_with(
@@ -2653,6 +2912,150 @@ mod tests {
                 Some(AlphaValue::new(0.5))
             )))
         );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(none 100% 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                None,
+                Some(1.0),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0 none 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                None,
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0 100% none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                None,
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(none 100% 50% / none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                None,
+                Some(1.0),
+                Some(0.5),
+                None
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0 none 50% / none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                None,
+                Some(0.5),
+                None
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsl(0 100% none / none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                None,
+                None
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsla(none 100% 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                None,
+                Some(1.0),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsla(0 none 50%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                None,
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsla(0 100% none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                None,
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsla(none 100% 50% / none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                None,
+                Some(1.0),
+                Some(0.5),
+                None
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsla(0 none 50% / none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                None,
+                Some(0.5),
+                None
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hsla(0 100% none / none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+                Some(Hue::new(0.)),
+                Some(1.0),
+                None,
+                None
+            )))
+        );
 
         assert_eq!(
             Color::parse_with(
@@ -2738,6 +3141,78 @@ mod tests {
                 Some(AlphaValue::new(0.5))
             )))
         );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(none 0% 0%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+                None,
+                Some(0.0),
+                Some(0.0),
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0 none 0%)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+                Some(Hue::new(0.)),
+                None,
+                Some(0.0),
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0 0% none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+                Some(Hue::new(0.)),
+                Some(0.0),
+                None,
+                Some(AlphaValue::new(1.0))
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(none 0% 0% / none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+                None,
+                Some(0.0),
+                Some(0.0),
+                None
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0 none 0% / none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+                Some(Hue::new(0.)),
+                None,
+                Some(0.0),
+                None
+            )))
+        );
+        assert_eq!(
+            Color::parse_with(
+                &component_parser,
+                &mut Parser::new(&mut ParserInput::new("hwb(0 0% none / none)"))
+            ),
+            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+                Some(Hue::new(0.)),
+                Some(0.0),
+                None,
+                None
+            )))
+        );
 
         assert!(Color::parse_with(
             &component_parser,
@@ -2751,12 +3226,142 @@ mod tests {
         .is_err());
         assert!(Color::parse_with(
             &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgb(none, none, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgb(255, none, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgb(none, 255, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgb(none, none, none, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgb(255, none, none, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgb(none, 255, none, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgba(none, none, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgba(255, none, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgba(none, 255, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgba(none, none, none, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgba(255, none, none, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgba(none, 255, none, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("rgba(none, none, 255, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
             &mut Parser::new(&mut ParserInput::new("hsl(0em 100% 50%)"))
         )
         .is_err());
         assert!(Color::parse_with(
             &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsl(none, 100%, 50%)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsl(0, none, 50%)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsl(0, 100%, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsl(none, 100%, 50%, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsl(0, none, 50%, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsl(0, 100%, none, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsla(none, 100%, 50%)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsla(0, none, 50%)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsla(0, 100%, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsla(none, 100%, 50%, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsla(0, none, 50%, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hsla(0, 100%, none, none)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
             &mut Parser::new(&mut ParserInput::new("hwb(0% 0% 0%)"))
+        )
+        .is_err());
+        assert!(Color::parse_with(
+            &component_parser,
+            &mut Parser::new(&mut ParserInput::new("hwb(0, 0%, 0%)"))
         )
         .is_err());
         assert!(Color::parse_with(
