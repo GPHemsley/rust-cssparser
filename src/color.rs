@@ -133,6 +133,56 @@ impl AlphaValue {
     }
 }
 
+// A set of coordinates in the Lab rectangular coordinate system.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct LabCoords {
+    pub lightness: Option<f32>,
+    pub a: Option<f32>,
+    pub b: Option<f32>,
+    pub alpha: Option<AlphaValue>,
+}
+
+impl LabCoords {
+    pub fn new(
+        lightness: Option<f32>,
+        a: Option<f32>,
+        b: Option<f32>,
+        alpha: Option<AlphaValue>,
+    ) -> Self {
+        Self {
+            lightness,
+            a,
+            b,
+            alpha,
+        }
+    }
+}
+
+// A set of coordinates in the LCH cylindrical coordinate system.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct LchCoords {
+    pub lightness: Option<f32>,
+    pub chroma: Option<f32>,
+    pub hue: Option<Hue>,
+    pub alpha: Option<AlphaValue>,
+}
+
+impl LchCoords {
+    pub fn new(
+        lightness: Option<f32>,
+        chroma: Option<f32>,
+        hue: Option<Hue>,
+        alpha: Option<AlphaValue>,
+    ) -> Self {
+        Self {
+            lightness,
+            chroma,
+            hue,
+            alpha,
+        }
+    }
+}
+
 /// A color in the sRGB color space.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum SrgbColor {
@@ -308,6 +358,8 @@ impl SrgbColor {
     }
 }
 
+/// https://w3c.github.io/csswg-drafts/css-color-4/#resolving-sRGB-values
+/// https://w3c.github.io/csswg-drafts/css-color-4/#serializing-sRGB-values
 impl ToCss for SrgbColor {
     fn to_css<W>(&self, dest: &mut W) -> fmt::Result
     where
@@ -331,6 +383,208 @@ impl ToCss for SrgbColor {
     }
 }
 
+/// https://w3c.github.io/csswg-drafts/css-color-4/#cie-lab
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum CielabColor {
+    CieLab(LabCoords),
+    CieLch(LchCoords),
+}
+
+impl CielabColor {
+    pub fn new(
+        lightness: Option<f32>,
+        a: Option<f32>,
+        b: Option<f32>,
+        alpha: Option<AlphaValue>,
+    ) -> Self {
+        Self::CieLab(LabCoords::new(lightness, a, b, alpha))
+    }
+
+    pub fn with_lch(
+        lightness: Option<f32>,
+        chroma: Option<f32>,
+        hue: Option<Hue>,
+        alpha: Option<AlphaValue>,
+    ) -> Self {
+        Self::CieLch(LchCoords::new(lightness, chroma, hue, alpha))
+    }
+
+    pub fn from_lab_coords(lab_coords: LabCoords) -> Self {
+        Self::CieLab(lab_coords)
+    }
+
+    pub fn from_lch_coords(lch_coords: LchCoords) -> Self {
+        Self::CieLch(lch_coords)
+    }
+}
+
+/// https://w3c.github.io/csswg-drafts/css-color-4/#resolving-lab-lch-values
+/// https://w3c.github.io/csswg-drafts/css-color-4/#serializing-lab-lch
+impl ToCss for CielabColor {
+    fn to_css<W>(&self, dest: &mut W) -> fmt::Result
+    where
+        W: fmt::Write,
+    {
+        match self {
+            CielabColor::CieLab(lab_coords) => {
+                dest.write_str("lab(")?;
+                match lab_coords.lightness {
+                    Some(lightness) => lightness.to_css(dest)?,
+                    None => dest.write_str("none")?,
+                };
+                dest.write_str(" ")?;
+                match lab_coords.a {
+                    Some(a) => a.to_css(dest)?,
+                    None => dest.write_str("none")?,
+                };
+                dest.write_str(" ")?;
+                match lab_coords.b {
+                    Some(b) => b.to_css(dest)?,
+                    None => dest.write_str("none")?,
+                };
+                match lab_coords.alpha {
+                    Some(alpha) => {
+                        if alpha.number != 1. {
+                            dest.write_str(" / ")?;
+                            alpha.number.to_css(dest)?;
+                        }
+                    }
+                    None => dest.write_str(" / none")?,
+                };
+                dest.write_str(")")
+            }
+            CielabColor::CieLch(lch_coords) => {
+                dest.write_str("lch(")?;
+                match lch_coords.lightness {
+                    Some(lightness) => lightness.to_css(dest)?,
+                    None => dest.write_str("none")?,
+                };
+                dest.write_str(" ")?;
+                match lch_coords.chroma {
+                    Some(chroma) => chroma.to_css(dest)?,
+                    None => dest.write_str("none")?,
+                };
+                dest.write_str(" ")?;
+                match lch_coords.hue {
+                    Some(hue) => hue.degrees.to_css(dest)?,
+                    None => dest.write_str("none")?,
+                };
+                match lch_coords.alpha {
+                    Some(alpha) => {
+                        if alpha.number != 1. {
+                            dest.write_str(" / ")?;
+                            alpha.number.to_css(dest)?;
+                        }
+                    }
+                    None => dest.write_str(" / none")?,
+                };
+                dest.write_str(")")
+            }
+        }
+    }
+}
+
+// https://w3c.github.io/csswg-drafts/css-color-4/#ok-lab
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum OklabColor {
+    OkLab(LabCoords),
+    OkLch(LchCoords),
+}
+
+impl OklabColor {
+    pub fn new(
+        lightness: Option<f32>,
+        a: Option<f32>,
+        b: Option<f32>,
+        alpha: Option<AlphaValue>,
+    ) -> Self {
+        Self::OkLab(LabCoords::new(lightness, a, b, alpha))
+    }
+
+    pub fn with_lch(
+        lightness: Option<f32>,
+        chroma: Option<f32>,
+        hue: Option<Hue>,
+        alpha: Option<AlphaValue>,
+    ) -> Self {
+        Self::OkLch(LchCoords::new(lightness, chroma, hue, alpha))
+    }
+
+    pub fn from_lab_coords(lab_coords: LabCoords) -> Self {
+        Self::OkLab(lab_coords)
+    }
+
+    pub fn from_lch_coords(lch_coords: LchCoords) -> Self {
+        Self::OkLch(lch_coords)
+    }
+}
+
+/// https://w3c.github.io/csswg-drafts/css-color-4/#resolving-lab-lch-values
+/// https://w3c.github.io/csswg-drafts/css-color-4/#serializing-lab-lch
+impl ToCss for OklabColor {
+    fn to_css<W>(&self, dest: &mut W) -> fmt::Result
+    where
+        W: fmt::Write,
+    {
+        match self {
+            OklabColor::OkLab(lab_coords) => {
+                dest.write_str("oklab(")?;
+                match lab_coords.lightness {
+                    Some(lightness) => lightness.to_css(dest)?,
+                    None => dest.write_str("none")?,
+                };
+                dest.write_str(" ")?;
+                match lab_coords.a {
+                    Some(a) => a.to_css(dest)?,
+                    None => dest.write_str("none")?,
+                };
+                dest.write_str(" ")?;
+                match lab_coords.b {
+                    Some(b) => b.to_css(dest)?,
+                    None => dest.write_str("none")?,
+                };
+                match lab_coords.alpha {
+                    Some(alpha) => {
+                        if alpha.number != 1. {
+                            dest.write_str(" / ")?;
+                            alpha.number.to_css(dest)?;
+                        }
+                    }
+                    None => dest.write_str(" / none")?,
+                };
+                dest.write_str(")")
+            }
+            OklabColor::OkLch(lch_coords) => {
+                dest.write_str("oklch(")?;
+                match lch_coords.lightness {
+                    Some(lightness) => lightness.to_css(dest)?,
+                    None => dest.write_str("none")?,
+                };
+                dest.write_str(" ")?;
+                match lch_coords.chroma {
+                    Some(chroma) => chroma.to_css(dest)?,
+                    None => dest.write_str("none")?,
+                };
+                dest.write_str(" ")?;
+                match lch_coords.hue {
+                    Some(hue) => hue.degrees.to_css(dest)?,
+                    None => dest.write_str("none")?,
+                };
+                match lch_coords.alpha {
+                    Some(alpha) => {
+                        if alpha.number != 1. {
+                            dest.write_str(" / ")?;
+                            alpha.number.to_css(dest)?;
+                        }
+                    }
+                    None => dest.write_str(" / none")?,
+                };
+                dest.write_str(")")
+            }
+        }
+    }
+}
+
 /// https://w3c.github.io/csswg-drafts/css-color-4/#named-colors
 #[derive(Clone, PartialEq, Debug)]
 pub struct NamedColor {
@@ -347,6 +601,8 @@ impl NamedColor {
     }
 }
 
+/// https://w3c.github.io/csswg-drafts/css-color-4/#resolving-sRGB-values
+/// https://w3c.github.io/csswg-drafts/css-color-4/#serializing-sRGB-values
 impl ToCss for NamedColor {
     fn to_css<W>(&self, dest: &mut W) -> fmt::Result
     where
@@ -390,6 +646,8 @@ impl DeprecatedColor {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct CurrentColor;
 
+/// https://w3c.github.io/csswg-drafts/css-color-4/#resolving-other-colors
+/// https://w3c.github.io/csswg-drafts/css-color-4/#serializing-other-colors
 impl ToCss for CurrentColor {
     fn to_css<W>(&self, dest: &mut W) -> fmt::Result
     where
@@ -403,15 +661,19 @@ impl ToCss for CurrentColor {
 /// https://w3c.github.io/csswg-drafts/css-color-4/#color-syntax
 #[derive(Clone, PartialEq, Debug)]
 pub enum Color {
-    /// An sRGB color
+    /// A color in the sRGB color space.
     SrgbColor(SrgbColor),
-    /// A named color
+    /// A color in the CIELAB color space.
+    CielabColor(CielabColor),
+    /// A color in the Oklab color space.
+    OklabColor(OklabColor),
+    /// A named color.
     NamedColor(NamedColor),
-    /// A system color
+    /// A system color.
     SystemColor(SystemColor),
-    /// A deprecated color
+    /// A deprecated color.
     DeprecatedColor(DeprecatedColor),
-    /// The 'currentcolor' keyword
+    /// The 'currentcolor' keyword.
     CurrentColor(CurrentColor),
 }
 
@@ -941,14 +1203,17 @@ where
                 |component_parser, input| Ok(component_parser.parse_number(input)? as f64 / 255.),
                 input,
             )?;
+
             let green = component_parser.parse_none_or(
                 |component_parser, input| Ok(component_parser.parse_number(input)? as f64 / 255.),
                 input,
             )?;
+
             let blue = component_parser.parse_none_or(
                 |component_parser, input| Ok(component_parser.parse_number(input)? as f64 / 255.),
                 input,
             )?;
+
             let alpha = parse_alpha_component(component_parser, input, false)?;
 
             Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(SrgbColor::new(
@@ -960,14 +1225,17 @@ where
                 |component_parser, input| Ok(component_parser.parse_percentage(input)? as f64),
                 input,
             )?;
+
             let green = component_parser.parse_none_or(
                 |component_parser, input| Ok(component_parser.parse_percentage(input)? as f64),
                 input,
             )?;
+
             let blue = component_parser.parse_none_or(
                 |component_parser, input| Ok(component_parser.parse_percentage(input)? as f64),
                 input,
             )?;
+
             let alpha = parse_alpha_component(component_parser, input, false)?;
 
             Ok::<Color, ParseError<'i, ComponentParser::Error>>(Color::SrgbColor(SrgbColor::new(
@@ -1114,8 +1382,9 @@ mod tests {
     use crate::ParserInput;
 
     use super::{
-        AlphaValue, Color, ColorComponentParser, CurrentColor, DefaultComponentParser,
-        DeprecatedColor, Hue, NamedColor, Parser, SrgbColor, SystemColor, ToCss, RGBA,
+        AlphaValue, CielabColor, Color, ColorComponentParser, CurrentColor, DefaultComponentParser,
+        DeprecatedColor, Hue, LabCoords, LchCoords, NamedColor, OklabColor, Parser, SrgbColor,
+        SystemColor, ToCss, RGBA,
     };
 
     #[test]
@@ -1397,6 +1666,425 @@ mod tests {
         assert_eq!(AlphaValue::new(0.0), AlphaValue { number: 0.0 });
         assert_eq!(AlphaValue::new(0.123), AlphaValue { number: 0.123 });
         assert_eq!(AlphaValue::new(1.0), AlphaValue { number: 1.0 });
+    }
+
+    #[test]
+    fn labcoords_clone() {
+        assert_eq!(
+            LabCoords {
+                lightness: Some(50.),
+                a: Some(0.),
+                b: Some(0.),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+            .clone(),
+            LabCoords {
+                lightness: Some(50.),
+                a: Some(0.),
+                b: Some(0.),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+        assert_eq!(
+            LabCoords {
+                lightness: Some(100.),
+                a: Some(160.),
+                b: Some(160.),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+            .clone(),
+            LabCoords {
+                lightness: Some(100.),
+                a: Some(160.),
+                b: Some(160.),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+        assert_eq!(
+            LabCoords {
+                lightness: Some(0.),
+                a: Some(-160.),
+                b: Some(-160.),
+                alpha: Some(AlphaValue::new(0.0)),
+            }
+            .clone(),
+            LabCoords {
+                lightness: Some(0.),
+                a: Some(-160.),
+                b: Some(-160.),
+                alpha: Some(AlphaValue::new(0.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn labcoords_clone_from() {
+        let mut target = LabCoords {
+            lightness: Some(50.),
+            a: Some(0.),
+            b: Some(0.),
+            alpha: Some(AlphaValue::new(1.0)),
+        };
+
+        target.clone_from(&LabCoords {
+            lightness: Some(100.),
+            a: Some(160.),
+            b: Some(160.),
+            alpha: Some(AlphaValue::new(1.0)),
+        });
+
+        assert_eq!(
+            target,
+            LabCoords {
+                lightness: Some(100.),
+                a: Some(160.),
+                b: Some(160.),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+
+        target.clone_from(&LabCoords {
+            lightness: Some(0.),
+            a: Some(-160.),
+            b: Some(-160.),
+            alpha: Some(AlphaValue::new(0.0)),
+        });
+
+        assert_eq!(
+            target,
+            LabCoords {
+                lightness: Some(0.),
+                a: Some(-160.),
+                b: Some(-160.),
+                alpha: Some(AlphaValue::new(0.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn labcoords_fmt() {
+        assert_eq!(
+            format!("{:?}", LabCoords {
+                lightness: Some(50.),
+                a: Some(0.),
+                b: Some(0.),
+                alpha: Some(AlphaValue::new(1.0)),
+            }),
+            "LabCoords { lightness: Some(50.0), a: Some(0.0), b: Some(0.0), alpha: Some(AlphaValue { number: 1.0 }) }",
+        );
+    }
+
+    #[test]
+    fn labcoords_eq() {
+        assert!(
+            LabCoords {
+                lightness: Some(100.),
+                a: Some(160.),
+                b: Some(160.),
+                alpha: Some(AlphaValue::new(1.0)),
+            } == LabCoords {
+                lightness: Some(100.),
+                a: Some(160.),
+                b: Some(160.),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+        assert!(
+            LabCoords {
+                lightness: Some(0.),
+                a: Some(-160.),
+                b: Some(-160.),
+                alpha: Some(AlphaValue::new(0.0)),
+            } == LabCoords {
+                lightness: Some(0.),
+                a: Some(-160.),
+                b: Some(-160.),
+                alpha: Some(AlphaValue::new(0.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn labcoords_ne() {
+        assert!(
+            LabCoords {
+                lightness: Some(100.),
+                a: Some(160.),
+                b: Some(160.),
+                alpha: Some(AlphaValue::new(1.0)),
+            } != LabCoords {
+                lightness: Some(0.),
+                a: Some(-160.),
+                b: Some(-160.),
+                alpha: Some(AlphaValue::new(0.0)),
+            }
+        );
+        assert!(
+            LabCoords {
+                lightness: Some(0.),
+                a: Some(-160.),
+                b: Some(-160.),
+                alpha: Some(AlphaValue::new(0.0)),
+            } != LabCoords {
+                lightness: Some(100.),
+                a: Some(160.),
+                b: Some(160.),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn labcoords_new() {
+        assert_eq!(
+            LabCoords::new(Some(50.), Some(0.), Some(0.), Some(AlphaValue::new(1.0))),
+            LabCoords {
+                lightness: Some(50.),
+                a: Some(0.),
+                b: Some(0.),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+        assert_eq!(
+            LabCoords::new(
+                Some(100.),
+                Some(160.),
+                Some(160.),
+                Some(AlphaValue::new(1.0))
+            ),
+            LabCoords {
+                lightness: Some(100.),
+                a: Some(160.),
+                b: Some(160.),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+        assert_eq!(
+            LabCoords::new(
+                Some(0.),
+                Some(-160.),
+                Some(-160.),
+                Some(AlphaValue::new(0.0))
+            ),
+            LabCoords {
+                lightness: Some(0.),
+                a: Some(-160.),
+                b: Some(-160.),
+                alpha: Some(AlphaValue::new(0.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn lchcoords_clone() {
+        assert_eq!(
+            LchCoords {
+                lightness: Some(50.),
+                chroma: Some(20.),
+                hue: Some(Hue::new(0.)),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+            .clone(),
+            LchCoords {
+                lightness: Some(50.),
+                chroma: Some(20.),
+                hue: Some(Hue::new(0.)),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+        assert_eq!(
+            LchCoords {
+                lightness: Some(100.),
+                chroma: Some(230.),
+                hue: Some(Hue::new(360.)),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+            .clone(),
+            LchCoords {
+                lightness: Some(100.),
+                chroma: Some(230.),
+                hue: Some(Hue::new(360.)),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+        assert_eq!(
+            LchCoords {
+                lightness: Some(0.),
+                chroma: Some(0.),
+                hue: Some(Hue::new(0.)),
+                alpha: Some(AlphaValue::new(0.0)),
+            }
+            .clone(),
+            LchCoords {
+                lightness: Some(0.),
+                chroma: Some(0.),
+                hue: Some(Hue::new(0.)),
+                alpha: Some(AlphaValue::new(0.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn lchcoords_clone_from() {
+        let mut target = LchCoords {
+            lightness: Some(50.),
+            chroma: Some(20.),
+            hue: Some(Hue::new(0.)),
+            alpha: Some(AlphaValue::new(1.0)),
+        };
+
+        target.clone_from(&LchCoords {
+            lightness: Some(100.),
+            chroma: Some(230.),
+            hue: Some(Hue::new(360.)),
+            alpha: Some(AlphaValue::new(1.0)),
+        });
+
+        assert_eq!(
+            target,
+            LchCoords {
+                lightness: Some(100.),
+                chroma: Some(230.),
+                hue: Some(Hue::new(360.)),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+
+        target.clone_from(&LchCoords {
+            lightness: Some(0.),
+            chroma: Some(0.),
+            hue: Some(Hue::new(0.)),
+            alpha: Some(AlphaValue::new(0.0)),
+        });
+
+        assert_eq!(
+            target,
+            LchCoords {
+                lightness: Some(0.),
+                chroma: Some(0.),
+                hue: Some(Hue::new(0.)),
+                alpha: Some(AlphaValue::new(0.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn lchcoords_fmt() {
+        assert_eq!(
+            format!("{:?}", LchCoords {
+                lightness: Some(50.),
+                chroma: Some(20.),
+                hue: Some(Hue::new(0.)),
+                alpha: Some(AlphaValue::new(1.0)),
+            }),
+            "LchCoords { lightness: Some(50.0), chroma: Some(20.0), hue: Some(Hue { degrees: 0.0 }), alpha: Some(AlphaValue { number: 1.0 }) }",
+        );
+    }
+
+    #[test]
+    fn lchcoords_eq() {
+        assert!(
+            LchCoords {
+                lightness: Some(100.),
+                chroma: Some(230.),
+                hue: Some(Hue::new(360.)),
+                alpha: Some(AlphaValue::new(1.0)),
+            } == LchCoords {
+                lightness: Some(100.),
+                chroma: Some(230.),
+                hue: Some(Hue::new(360.)),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+        assert!(
+            LchCoords {
+                lightness: Some(0.),
+                chroma: Some(0.),
+                hue: Some(Hue::new(0.)),
+                alpha: Some(AlphaValue::new(0.0)),
+            } == LchCoords {
+                lightness: Some(0.),
+                chroma: Some(0.),
+                hue: Some(Hue::new(0.)),
+                alpha: Some(AlphaValue::new(0.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn lchcoords_ne() {
+        assert!(
+            LchCoords {
+                lightness: Some(100.),
+                chroma: Some(230.),
+                hue: Some(Hue::new(360.)),
+                alpha: Some(AlphaValue::new(1.0)),
+            } != LchCoords {
+                lightness: Some(0.),
+                chroma: Some(0.),
+                hue: Some(Hue::new(0.)),
+                alpha: Some(AlphaValue::new(0.0)),
+            }
+        );
+        assert!(
+            LchCoords {
+                lightness: Some(0.),
+                chroma: Some(0.),
+                hue: Some(Hue::new(0.)),
+                alpha: Some(AlphaValue::new(0.0)),
+            } != LchCoords {
+                lightness: Some(100.),
+                chroma: Some(230.),
+                hue: Some(Hue::new(360.)),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn lchcoords_new() {
+        assert_eq!(
+            LchCoords::new(
+                Some(50.),
+                Some(20.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ),
+            LchCoords {
+                lightness: Some(50.),
+                chroma: Some(20.),
+                hue: Some(Hue::new(0.)),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+        assert_eq!(
+            LchCoords::new(
+                Some(100.),
+                Some(230.),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ),
+            LchCoords {
+                lightness: Some(100.),
+                chroma: Some(230.),
+                hue: Some(Hue::new(360.)),
+                alpha: Some(AlphaValue::new(1.0)),
+            }
+        );
+        assert_eq!(
+            LchCoords::new(
+                Some(0.),
+                Some(0.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(0.0))
+            ),
+            LchCoords {
+                lightness: Some(0.),
+                chroma: Some(0.),
+                hue: Some(Hue::new(0.)),
+                alpha: Some(AlphaValue::new(0.0)),
+            }
+        );
     }
 
     #[test]
@@ -1868,6 +2556,556 @@ mod tests {
         assert_eq!(
             SrgbColor::from_ints(255, 255, 255, 255).to_css_string(),
             "rgb(255, 255, 255)"
+        );
+    }
+
+    #[test]
+    fn cielabcolor_clone() {
+        assert_eq!(
+            CielabColor::CieLab(LabCoords::new(
+                Some(50.),
+                Some(0.),
+                Some(0.),
+                Some(AlphaValue::new(1.0))
+            )),
+            CielabColor::CieLab {
+                0: LabCoords {
+                    lightness: Some(50.),
+                    a: Some(0.),
+                    b: Some(0.),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+        assert_eq!(
+            CielabColor::CieLch(LchCoords::new(
+                Some(50.),
+                Some(20.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            )),
+            CielabColor::CieLch {
+                0: LchCoords {
+                    lightness: Some(50.),
+                    chroma: Some(20.),
+                    hue: Some(Hue { degrees: 0. }),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn cielabcolor_clone_from() {
+        let mut target = CielabColor::CieLab(LabCoords::new(
+            Some(50.),
+            Some(0.),
+            Some(0.),
+            Some(AlphaValue::new(1.0)),
+        ));
+
+        target.clone_from(&CielabColor::CieLch(LchCoords::new(
+            Some(50.),
+            Some(20.),
+            Some(Hue::new(0.)),
+            Some(AlphaValue::new(1.0)),
+        )));
+
+        assert_eq!(
+            target,
+            CielabColor::CieLch {
+                0: LchCoords {
+                    lightness: Some(50.),
+                    chroma: Some(20.),
+                    hue: Some(Hue { degrees: 0. }),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn cielabcolor_fmt() {
+        assert_eq!(
+            format!(
+                "{:?}",
+                CielabColor::CieLab(LabCoords::new(
+                    Some(50.),
+                    Some(0.),
+                    Some(0.),
+                    Some(AlphaValue::new(1.0))
+                ))
+            ),
+            "CieLab(LabCoords { lightness: Some(50.0), a: Some(0.0), b: Some(0.0), alpha: Some(AlphaValue { number: 1.0 }) })"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                CielabColor::CieLch(LchCoords::new(
+                    Some(50.),
+                    Some(20.),
+                    Some(Hue::new(0.)),
+                    Some(AlphaValue::new(1.0))
+                ))
+            ),
+            "CieLch(LchCoords { lightness: Some(50.0), chroma: Some(20.0), hue: Some(Hue { degrees: 0.0 }), alpha: Some(AlphaValue { number: 1.0 }) })"
+        );
+    }
+
+    #[test]
+    fn cielabcolor_eq() {
+        assert!(
+            CielabColor::CieLab(LabCoords::new(
+                Some(50.),
+                Some(0.),
+                Some(0.),
+                Some(AlphaValue::new(1.0))
+            )) == CielabColor::CieLab(LabCoords::new(
+                Some(50.),
+                Some(0.),
+                Some(0.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        assert!(
+            CielabColor::CieLch(LchCoords::new(
+                Some(50.),
+                Some(20.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            )) == CielabColor::CieLch(LchCoords::new(
+                Some(50.),
+                Some(20.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+    }
+
+    #[test]
+    fn cielabcolor_ne() {
+        assert!(
+            CielabColor::CieLab(LabCoords::new(
+                Some(50.),
+                Some(0.),
+                Some(0.),
+                Some(AlphaValue::new(1.0))
+            )) != CielabColor::CieLch(LchCoords::new(
+                Some(50.),
+                Some(20.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        assert!(
+            CielabColor::CieLch(LchCoords::new(
+                Some(50.),
+                Some(20.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            )) != CielabColor::CieLab(LabCoords::new(
+                Some(50.),
+                Some(0.),
+                Some(0.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+    }
+
+    #[test]
+    fn cielabcolor_new() {
+        assert_eq!(
+            CielabColor::new(Some(50.), Some(0.), Some(0.), Some(AlphaValue::new(1.0))),
+            CielabColor::CieLab {
+                0: LabCoords {
+                    lightness: Some(50.),
+                    a: Some(0.),
+                    b: Some(0.),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn cielabcolor_with_lch() {
+        assert_eq!(
+            CielabColor::with_lch(
+                Some(50.),
+                Some(20.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ),
+            CielabColor::CieLch {
+                0: LchCoords {
+                    lightness: Some(50.),
+                    chroma: Some(20.),
+                    hue: Some(Hue { degrees: 0. }),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn cielabcolor_from_lab_coords() {
+        assert_eq!(
+            CielabColor::from_lab_coords(LabCoords::new(
+                Some(50.),
+                Some(0.),
+                Some(0.),
+                Some(AlphaValue::new(1.0))
+            )),
+            CielabColor::CieLab {
+                0: LabCoords {
+                    lightness: Some(50.),
+                    a: Some(0.),
+                    b: Some(0.),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn cielabcolor_from_lch_coords() {
+        assert_eq!(
+            CielabColor::from_lch_coords(LchCoords::new(
+                Some(50.),
+                Some(20.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            )),
+            CielabColor::CieLch {
+                0: LchCoords {
+                    lightness: Some(50.),
+                    chroma: Some(20.),
+                    hue: Some(Hue { degrees: 0. }),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn cielabcolor_to_css() {
+        assert_eq!(
+            CielabColor::new(None, None, None, None).to_css_string(),
+            "lab(none none none / none)"
+        );
+        assert_eq!(
+            CielabColor::new(
+                Some(100.),
+                Some(160.),
+                Some(160.),
+                Some(AlphaValue::new(1.0))
+            )
+            .to_css_string(),
+            "lab(100 160 160)"
+        );
+        assert_eq!(
+            CielabColor::new(
+                Some(0.),
+                Some(-160.),
+                Some(-160.),
+                Some(AlphaValue::new(0.0))
+            )
+            .to_css_string(),
+            "lab(0 -160 -160 / 0)"
+        );
+        assert_eq!(
+            CielabColor::with_lch(None, None, None, None).to_css_string(),
+            "lch(none none none / none)"
+        );
+        assert_eq!(
+            CielabColor::with_lch(
+                Some(100.),
+                Some(230.),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            )
+            .to_css_string(),
+            "lch(100 230 360)"
+        );
+        assert_eq!(
+            CielabColor::with_lch(
+                Some(0.),
+                Some(0.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(0.0))
+            )
+            .to_css_string(),
+            "lch(0 0 0 / 0)"
+        );
+    }
+
+    #[test]
+    fn oklabcolor_clone() {
+        assert_eq!(
+            OklabColor::OkLab(LabCoords::new(
+                Some(0.5),
+                Some(0.),
+                Some(0.),
+                Some(AlphaValue::new(1.0))
+            )),
+            OklabColor::OkLab {
+                0: LabCoords {
+                    lightness: Some(0.5),
+                    a: Some(0.),
+                    b: Some(0.),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+        assert_eq!(
+            OklabColor::OkLch(LchCoords::new(
+                Some(0.5),
+                Some(0.2),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            )),
+            OklabColor::OkLch {
+                0: LchCoords {
+                    lightness: Some(0.5),
+                    chroma: Some(0.2),
+                    hue: Some(Hue { degrees: 0. }),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn oklabcolor_clone_from() {
+        let mut target = OklabColor::OkLab(LabCoords::new(
+            Some(0.5),
+            Some(0.),
+            Some(0.),
+            Some(AlphaValue::new(1.0)),
+        ));
+
+        target.clone_from(&OklabColor::OkLch(LchCoords::new(
+            Some(0.5),
+            Some(0.2),
+            Some(Hue::new(0.)),
+            Some(AlphaValue::new(1.0)),
+        )));
+
+        assert_eq!(
+            target,
+            OklabColor::OkLch {
+                0: LchCoords {
+                    lightness: Some(0.5),
+                    chroma: Some(0.2),
+                    hue: Some(Hue { degrees: 0. }),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn oklabcolor_fmt() {
+        assert_eq!(
+            format!(
+                "{:?}",
+                OklabColor::OkLab(LabCoords::new(
+                    Some(0.5),
+                    Some(0.),
+                    Some(0.),
+                    Some(AlphaValue::new(1.0))
+                ))
+            ),
+            "OkLab(LabCoords { lightness: Some(0.5), a: Some(0.0), b: Some(0.0), alpha: Some(AlphaValue { number: 1.0 }) })"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                OklabColor::OkLch(LchCoords::new(
+                    Some(0.5),
+                    Some(0.2),
+                    Some(Hue::new(0.)),
+                    Some(AlphaValue::new(1.0))
+                ))
+            ),
+            "OkLch(LchCoords { lightness: Some(0.5), chroma: Some(0.2), hue: Some(Hue { degrees: 0.0 }), alpha: Some(AlphaValue { number: 1.0 }) })"
+        );
+    }
+
+    #[test]
+    fn oklabcolor_eq() {
+        assert!(
+            OklabColor::OkLab(LabCoords::new(
+                Some(0.5),
+                Some(0.),
+                Some(0.),
+                Some(AlphaValue::new(1.0))
+            )) == OklabColor::OkLab(LabCoords::new(
+                Some(0.5),
+                Some(0.),
+                Some(0.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        assert!(
+            OklabColor::OkLch(LchCoords::new(
+                Some(0.5),
+                Some(0.2),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            )) == OklabColor::OkLch(LchCoords::new(
+                Some(0.5),
+                Some(0.2),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+    }
+
+    #[test]
+    fn oklabcolor_ne() {
+        assert!(
+            OklabColor::OkLab(LabCoords::new(
+                Some(0.5),
+                Some(0.),
+                Some(0.),
+                Some(AlphaValue::new(1.0))
+            )) != OklabColor::OkLch(LchCoords::new(
+                Some(0.5),
+                Some(0.2),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        assert!(
+            OklabColor::OkLch(LchCoords::new(
+                Some(0.5),
+                Some(0.2),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            )) != OklabColor::OkLab(LabCoords::new(
+                Some(0.5),
+                Some(0.),
+                Some(0.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+    }
+
+    #[test]
+    fn oklabcolor_new() {
+        assert_eq!(
+            OklabColor::new(Some(0.5), Some(0.), Some(0.), Some(AlphaValue::new(1.0))),
+            OklabColor::OkLab {
+                0: LabCoords {
+                    lightness: Some(0.5),
+                    a: Some(0.),
+                    b: Some(0.),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn oklabcolor_with_lch() {
+        assert_eq!(
+            OklabColor::with_lch(
+                Some(0.5),
+                Some(0.2),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ),
+            OklabColor::OkLch {
+                0: LchCoords {
+                    lightness: Some(0.5),
+                    chroma: Some(0.2),
+                    hue: Some(Hue { degrees: 0. }),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn oklabcolor_from_lab_coords() {
+        assert_eq!(
+            OklabColor::from_lab_coords(LabCoords::new(
+                Some(0.5),
+                Some(0.),
+                Some(0.),
+                Some(AlphaValue::new(1.0))
+            )),
+            OklabColor::OkLab {
+                0: LabCoords {
+                    lightness: Some(0.5),
+                    a: Some(0.),
+                    b: Some(0.),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn oklabcolor_from_lch_coords() {
+        assert_eq!(
+            OklabColor::from_lch_coords(LchCoords::new(
+                Some(0.5),
+                Some(0.2),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            )),
+            OklabColor::OkLch {
+                0: LchCoords {
+                    lightness: Some(0.5),
+                    chroma: Some(0.2),
+                    hue: Some(Hue { degrees: 0. }),
+                    alpha: Some(AlphaValue { number: 1.0 }),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn oklabcolor_to_css() {
+        assert_eq!(
+            OklabColor::new(None, None, None, None).to_css_string(),
+            "oklab(none none none / none)"
+        );
+        assert_eq!(
+            OklabColor::new(Some(1.), Some(0.5), Some(0.5), Some(AlphaValue::new(1.0)))
+                .to_css_string(),
+            "oklab(1 0.5 0.5)"
+        );
+        assert_eq!(
+            OklabColor::new(Some(0.), Some(-0.5), Some(-0.5), Some(AlphaValue::new(0.0)))
+                .to_css_string(),
+            "oklab(0 -0.5 -0.5 / 0)"
+        );
+        assert_eq!(
+            OklabColor::with_lch(None, None, None, None).to_css_string(),
+            "oklch(none none none / none)"
+        );
+        assert_eq!(
+            OklabColor::with_lch(
+                Some(1.),
+                Some(0.5),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            )
+            .to_css_string(),
+            "oklch(1 0.5 360)"
+        );
+        assert_eq!(
+            OklabColor::with_lch(
+                Some(0.),
+                Some(0.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(0.0))
+            )
+            .to_css_string(),
+            "oklch(0 0 0 / 0)"
         );
     }
 

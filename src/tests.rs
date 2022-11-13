@@ -9,20 +9,16 @@ use encoding_rs;
 use matches::matches;
 use serde_json::{self, json, Map, Value};
 
-use crate::{
-    color::{CurrentColor, SrgbColor},
-    DeprecatedColor, NamedColor,
-};
-
 #[cfg(feature = "bench")]
 use self::test::Bencher;
 
 use super::{
     parse_important, parse_nth, parse_one_declaration, parse_one_rule, stylesheet_encoding,
-    AtRuleParser, BasicParseError, BasicParseErrorKind, Color, CowRcStr, DeclarationListParser,
-    DeclarationParser, Delimiter, EncodingSupport, ParseError, ParseErrorKind, Parser, ParserInput,
-    ParserState, QualifiedRuleParser, RuleListParser, SourceLocation, ToCss, Token,
-    TokenSerializationType, UnicodeRange, RGBA,
+    AtRuleParser, BasicParseError, BasicParseErrorKind, Color, CowRcStr, CurrentColor,
+    DeclarationListParser, DeclarationParser, Delimiter, DeprecatedColor, EncodingSupport,
+    NamedColor, ParseError, ParseErrorKind, Parser, ParserInput, ParserState, QualifiedRuleParser,
+    RuleListParser, SourceLocation, SrgbColor, ToCss, Token, TokenSerializationType, UnicodeRange,
+    RGBA,
 };
 
 macro_rules! JArray {
@@ -850,6 +846,8 @@ impl ToJson for Color {
                 ..
             }) => system_color.name.to_json(),
             Color::CurrentColor(CurrentColor) => "currentcolor".to_json(),
+            Color::CielabColor(_) => todo!(),
+            Color::OklabColor(_) => todo!(),
         }
     }
 }
