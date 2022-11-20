@@ -1084,6 +1084,10 @@ impl Color {
             "rgb" | "rgba" => parse_rgb(component_parser, arguments)?,
             "hsl" | "hsla" => parse_hsl(component_parser, arguments)?,
             "hwb" => parse_hwb(component_parser, arguments)?,
+            "lab" => parse_lab(component_parser, arguments)?,
+            "lch" => parse_lch(component_parser, arguments)?,
+            "oklab" => parse_oklab(component_parser, arguments)?,
+            "oklch" => parse_oklch(component_parser, arguments)?,
             _ => return Err(arguments.new_unexpected_token_error(Token::Ident(name.to_owned().into()))),
         };
 
@@ -1324,6 +1328,206 @@ where
 
     Ok(Color::SrgbColor(SrgbColor::with_hwb(
         hue, whiteness, blackness, alpha,
+    )))
+}
+
+/// https://w3c.github.io/csswg-drafts/css-color-4/#specifying-lab-lch
+#[inline]
+fn parse_lab<'i, 't, ComponentParser>(
+    component_parser: &ComponentParser,
+    arguments: &mut Parser<'i, 't>,
+) -> Result<Color, ParseError<'i, ComponentParser::Error>>
+where
+    ComponentParser: ColorComponentParser<'i>,
+{
+    let lightness = component_parser.parse_none_or(
+        |component_parser, input| {
+            input
+                .try_parse(|input| {
+                    Ok::<f32, ParseError<'i, ComponentParser::Error>>(
+                        component_parser.parse_percentage(input)? * 100.0,
+                    )
+                })
+                .or_else(|_| component_parser.parse_number(input))
+        },
+        arguments,
+    )?;
+
+    let a = component_parser.parse_none_or(
+        |component_parser, input| {
+            input
+                .try_parse(|input| {
+                    Ok::<f32, ParseError<'i, ComponentParser::Error>>(
+                        component_parser.parse_percentage(input)? * 125.,
+                    )
+                })
+                .or_else(|_| component_parser.parse_number(input))
+        },
+        arguments,
+    )?;
+
+    let b = component_parser.parse_none_or(
+        |component_parser, input| {
+            input
+                .try_parse(|input| {
+                    Ok::<f32, ParseError<'i, ComponentParser::Error>>(
+                        component_parser.parse_percentage(input)? * 125.,
+                    )
+                })
+                .or_else(|_| component_parser.parse_number(input))
+        },
+        arguments,
+    )?;
+
+    let alpha = parse_alpha_component(component_parser, arguments, false)?;
+
+    Ok(Color::CielabColor(CielabColor::new(lightness, a, b, alpha)))
+}
+
+/// https://w3c.github.io/csswg-drafts/css-color-4/#specifying-lab-lch
+#[inline]
+fn parse_lch<'i, 't, ComponentParser>(
+    component_parser: &ComponentParser,
+    arguments: &mut Parser<'i, 't>,
+) -> Result<Color, ParseError<'i, ComponentParser::Error>>
+where
+    ComponentParser: ColorComponentParser<'i>,
+{
+    let lightness = component_parser.parse_none_or(
+        |component_parser, input| {
+            input
+                .try_parse(|input| {
+                    Ok::<f32, ParseError<'i, ComponentParser::Error>>(
+                        component_parser.parse_percentage(input)? * 100.0,
+                    )
+                })
+                .or_else(|_| component_parser.parse_number(input))
+        },
+        arguments,
+    )?;
+
+    let chroma = component_parser.parse_none_or(
+        |component_parser, input| {
+            input
+                .try_parse(|input| {
+                    Ok::<f32, ParseError<'i, ComponentParser::Error>>(
+                        component_parser.parse_percentage(input)? * 150.,
+                    )
+                })
+                .or_else(|_| component_parser.parse_number(input))
+        },
+        arguments,
+    )?;
+
+    let hue = component_parser.parse_none_or(
+        |component_parser, input| component_parser.parse_hue(input),
+        arguments,
+    )?;
+
+    let alpha = parse_alpha_component(component_parser, arguments, false)?;
+
+    Ok(Color::CielabColor(CielabColor::with_lch(
+        lightness, chroma, hue, alpha,
+    )))
+}
+
+/// https://w3c.github.io/csswg-drafts/css-color-4/#specifying-oklab-oklch
+#[inline]
+fn parse_oklab<'i, 't, ComponentParser>(
+    component_parser: &ComponentParser,
+    arguments: &mut Parser<'i, 't>,
+) -> Result<Color, ParseError<'i, ComponentParser::Error>>
+where
+    ComponentParser: ColorComponentParser<'i>,
+{
+    let lightness = component_parser.parse_none_or(
+        |component_parser, input| {
+            input
+                .try_parse(|input| {
+                    Ok::<f32, ParseError<'i, ComponentParser::Error>>(
+                        component_parser.parse_percentage(input)? * 1.0,
+                    )
+                })
+                .or_else(|_| component_parser.parse_number(input))
+        },
+        arguments,
+    )?;
+
+    let a = component_parser.parse_none_or(
+        |component_parser, input| {
+            input
+                .try_parse(|input| {
+                    Ok::<f32, ParseError<'i, ComponentParser::Error>>(
+                        component_parser.parse_percentage(input)? * 0.4,
+                    )
+                })
+                .or_else(|_| component_parser.parse_number(input))
+        },
+        arguments,
+    )?;
+
+    let b = component_parser.parse_none_or(
+        |component_parser, input| {
+            input
+                .try_parse(|input| {
+                    Ok::<f32, ParseError<'i, ComponentParser::Error>>(
+                        component_parser.parse_percentage(input)? * 0.4,
+                    )
+                })
+                .or_else(|_| component_parser.parse_number(input))
+        },
+        arguments,
+    )?;
+
+    let alpha = parse_alpha_component(component_parser, arguments, false)?;
+
+    Ok(Color::OklabColor(OklabColor::new(lightness, a, b, alpha)))
+}
+
+/// https://w3c.github.io/csswg-drafts/css-color-4/#specifying-oklab-oklch
+#[inline]
+fn parse_oklch<'i, 't, ComponentParser>(
+    component_parser: &ComponentParser,
+    arguments: &mut Parser<'i, 't>,
+) -> Result<Color, ParseError<'i, ComponentParser::Error>>
+where
+    ComponentParser: ColorComponentParser<'i>,
+{
+    let lightness = component_parser.parse_none_or(
+        |component_parser, input| {
+            input
+                .try_parse(|input| {
+                    Ok::<f32, ParseError<'i, ComponentParser::Error>>(
+                        component_parser.parse_percentage(input)? * 1.0,
+                    )
+                })
+                .or_else(|_| component_parser.parse_number(input))
+        },
+        arguments,
+    )?;
+
+    let chroma = component_parser.parse_none_or(
+        |component_parser, input| {
+            input
+                .try_parse(|input| {
+                    Ok::<f32, ParseError<'i, ComponentParser::Error>>(
+                        component_parser.parse_percentage(input)? * 0.4,
+                    )
+                })
+                .or_else(|_| component_parser.parse_number(input))
+        },
+        arguments,
+    )?;
+
+    let hue = component_parser.parse_none_or(
+        |component_parser, input| component_parser.parse_hue(input),
+        arguments,
+    )?;
+
+    let alpha = parse_alpha_component(component_parser, arguments, false)?;
+
+    Ok(Color::OklabColor(OklabColor::with_lch(
+        lightness, chroma, hue, alpha,
     )))
 }
 
@@ -3741,872 +3945,1477 @@ mod tests {
     fn color_parse_with() {
         let component_parser = DefaultComponentParser;
 
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("#abc"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(
-                0xAA, 0xBB, 0xCC, 255
-            )))
+        macro_rules! parse_with_assert_eq {
+            ($input:expr, $right:expr) => {
+                assert_eq!(
+                    Color::parse_with(
+                        &component_parser,
+                        &mut Parser::new(&mut ParserInput::new($input))
+                    ),
+                    Ok($right)
+                );
+            };
+        }
+
+        macro_rules! parse_with_assert_is_err {
+            ($input:expr) => {
+                assert!(Color::parse_with(
+                    &component_parser,
+                    &mut Parser::new(&mut ParserInput::new($input))
+                )
+                .is_err());
+            };
+        }
+
+        // parse_hex_color
+        parse_with_assert_eq!(
+            "#abc",
+            Color::SrgbColor(SrgbColor::from_ints(0xAA, 0xBB, 0xCC, 255))
         );
 
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("currentcolor"))
-            ),
-            Ok(Color::CurrentColor(CurrentColor))
-        );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("transparent"))
-            ),
-            Ok(Color::NamedColor(NamedColor::new(
+        // parse_color_keyword
+        parse_with_assert_eq!("currentcolor", Color::CurrentColor(CurrentColor));
+        parse_with_assert_eq!(
+            "transparent",
+            Color::NamedColor(NamedColor::new(
                 "transparent".to_string(),
                 SrgbColor::from_ints(0, 0, 0, 0)
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("red"))
-            ),
-            Ok(Color::NamedColor(NamedColor::new(
+        parse_with_assert_eq!(
+            "red",
+            Color::NamedColor(NamedColor::new(
                 "red".to_string(),
                 SrgbColor::from_ints(255, 0, 0, 255)
-            )))
+            ))
         );
 
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(255, 0, 0)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        // parse_rgb
+        parse_with_assert_eq!(
+            "rgb(255, 0, 0)",
+            Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(100%, 0%, 0%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        parse_with_assert_eq!(
+            "rgb(100%, 0%, 0%)",
+            Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgba(255, 0, 0, 0.5)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::from_floats(1.0, 0.0, 0.0, 0.5)))
+        parse_with_assert_eq!(
+            "rgba(255, 0, 0, 0.5)",
+            Color::SrgbColor(SrgbColor::from_floats(1.0, 0.0, 0.0, 0.5))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgba(100%, 0%, 0%, 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::from_floats(1.0, 0.0, 0.0, 0.5)))
+        parse_with_assert_eq!(
+            "rgba(100%, 0%, 0%, 50%)",
+            Color::SrgbColor(SrgbColor::from_floats(1.0, 0.0, 0.0, 0.5))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(255 0 0)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        parse_with_assert_eq!(
+            "rgb(255 0 0)",
+            Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(100% 0% 0%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255)))
+        parse_with_assert_eq!(
+            "rgb(100% 0% 0%)",
+            Color::SrgbColor(SrgbColor::from_ints(255, 0, 0, 255))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(255 0 0 / 0.5)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::from_floats(1.0, 0.0, 0.0, 0.5)))
+        parse_with_assert_eq!(
+            "rgb(255 0 0 / 0.5)",
+            Color::SrgbColor(SrgbColor::from_floats(1.0, 0.0, 0.0, 0.5))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(100% 0% 0% / 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::from_floats(1.0, 0.0, 0.0, 0.5)))
+        parse_with_assert_eq!(
+            "rgb(100% 0% 0% / 50%)",
+            Color::SrgbColor(SrgbColor::from_floats(1.0, 0.0, 0.0, 0.5))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(none none none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
-                None,
-                None,
-                None,
-                Some(AlphaValue::new(1.0))
-            )))
+        parse_with_assert_eq!(
+            "rgb(none none none)",
+            Color::SrgbColor(SrgbColor::new(None, None, None, Some(AlphaValue::new(1.0))))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(none none none / none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(None, None, None, None)))
+        parse_with_assert_eq!(
+            "rgb(none none none / none)",
+            Color::SrgbColor(SrgbColor::new(None, None, None, None))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(255 none none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
+        parse_with_assert_eq!(
+            "rgb(255 none none)",
+            Color::SrgbColor(SrgbColor::new(
                 Some(1.0),
                 None,
                 None,
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(none 255 none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
+        parse_with_assert_eq!(
+            "rgb(none 255 none)",
+            Color::SrgbColor(SrgbColor::new(
                 None,
                 Some(1.0),
                 None,
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(none none 255)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
+        parse_with_assert_eq!(
+            "rgb(none none 255)",
+            Color::SrgbColor(SrgbColor::new(
                 None,
                 None,
                 Some(1.0),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(100% none none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
+        parse_with_assert_eq!(
+            "rgb(100% none none)",
+            Color::SrgbColor(SrgbColor::new(
                 Some(1.0),
                 None,
                 None,
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(none 100% none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
+        parse_with_assert_eq!(
+            "rgb(none 100% none)",
+            Color::SrgbColor(SrgbColor::new(
                 None,
                 Some(1.0),
                 None,
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgb(none none 100%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
+        parse_with_assert_eq!(
+            "rgb(none none 100%)",
+            Color::SrgbColor(SrgbColor::new(
                 None,
                 None,
                 Some(1.0),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgba(none none none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
-                None,
-                None,
-                None,
-                Some(AlphaValue::new(1.0))
-            )))
+        parse_with_assert_eq!(
+            "rgba(none none none)",
+            Color::SrgbColor(SrgbColor::new(None, None, None, Some(AlphaValue::new(1.0))))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgba(none none none / none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(None, None, None, None)))
+        parse_with_assert_eq!(
+            "rgba(none none none / none)",
+            Color::SrgbColor(SrgbColor::new(None, None, None, None))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgba(255 none none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
+        parse_with_assert_eq!(
+            "rgba(255 none none)",
+            Color::SrgbColor(SrgbColor::new(
                 Some(1.0),
                 None,
                 None,
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgba(none 255 none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
+        parse_with_assert_eq!(
+            "rgba(none 255 none)",
+            Color::SrgbColor(SrgbColor::new(
                 None,
                 Some(1.0),
                 None,
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgba(none none 255)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
+        parse_with_assert_eq!(
+            "rgba(none none 255)",
+            Color::SrgbColor(SrgbColor::new(
                 None,
                 None,
                 Some(1.0),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgba(100% none none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
+        parse_with_assert_eq!(
+            "rgba(100% none none)",
+            Color::SrgbColor(SrgbColor::new(
                 Some(1.0),
                 None,
                 None,
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgba(none 100% none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
+        parse_with_assert_eq!(
+            "rgba(none 100% none)",
+            Color::SrgbColor(SrgbColor::new(
                 None,
                 Some(1.0),
                 None,
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("rgba(none none 100%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::new(
+        parse_with_assert_eq!(
+            "rgba(none none 100%)",
+            Color::SrgbColor(SrgbColor::new(
                 None,
                 None,
                 Some(1.0),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
 
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0, 100%, 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        // parse_hsl
+        parse_with_assert_eq!(
+            "hsl(0, 100%, 50%)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 Some(0.5),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0deg, 100%, 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsl(0deg, 100%, 50%)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 Some(0.5),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsla(0, 100%, 50%, 0.5)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsla(0, 100%, 50%, 0.5)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 Some(0.5),
                 Some(AlphaValue::new(0.5))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsla(0deg, 100%, 50%, 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsla(0deg, 100%, 50%, 50%)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 Some(0.5),
                 Some(AlphaValue::new(0.5))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0 100% 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsl(0 100% 50%)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 Some(0.5),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0deg 100% 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsl(0deg 100% 50%)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 Some(0.5),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0grad 100% 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsl(0grad 100% 50%)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 Some(0.5),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0rad 100% 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsl(0rad 100% 50%)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 Some(0.5),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0turn 100% 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsl(0turn 100% 50%)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 Some(0.5),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0 100% 50% / 0.5)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsl(0 100% 50% / 0.5)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 Some(0.5),
                 Some(AlphaValue::new(0.5))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0deg 100% 50% / 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsl(0deg 100% 50% / 50%)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 Some(0.5),
                 Some(AlphaValue::new(0.5))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(none 100% 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsl(none 100% 50%)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 None,
                 Some(1.0),
                 Some(0.5),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0 none 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsl(0 none 50%)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 None,
                 Some(0.5),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0 100% none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsl(0 100% none)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 None,
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(none 100% 50% / none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
-                None,
-                Some(1.0),
-                Some(0.5),
-                None
-            )))
+        parse_with_assert_eq!(
+            "hsl(none 100% 50% / none)",
+            Color::SrgbColor(SrgbColor::with_hsl(None, Some(1.0), Some(0.5), None))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0 none 50% / none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsl(0 none 50% / none)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 None,
                 Some(0.5),
                 None
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsl(0 100% none / none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsl(0 100% none / none)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 None,
                 None
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsla(none 100% 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsla(none 100% 50%)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 None,
                 Some(1.0),
                 Some(0.5),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsla(0 none 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsla(0 none 50%)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 None,
                 Some(0.5),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsla(0 100% none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsla(0 100% none)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 None,
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsla(none 100% 50% / none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
-                None,
-                Some(1.0),
-                Some(0.5),
-                None
-            )))
+        parse_with_assert_eq!(
+            "hsla(none 100% 50% / none)",
+            Color::SrgbColor(SrgbColor::with_hsl(None, Some(1.0), Some(0.5), None))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsla(0 none 50% / none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsla(0 none 50% / none)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 None,
                 Some(0.5),
                 None
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hsla(0 100% none / none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hsl(
+        parse_with_assert_eq!(
+            "hsla(0 100% none / none)",
+            Color::SrgbColor(SrgbColor::with_hsl(
                 Some(Hue::new(0.)),
                 Some(1.0),
                 None,
                 None
-            )))
+            ))
         );
 
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0 0% 0%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+        // parse_hwb
+        parse_with_assert_eq!(
+            "hwb(0 0% 0%)",
+            Color::SrgbColor(SrgbColor::with_hwb(
                 Some(Hue::new(0.)),
                 Some(0.0),
                 Some(0.0),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0deg 0% 0%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+        parse_with_assert_eq!(
+            "hwb(0deg 0% 0%)",
+            Color::SrgbColor(SrgbColor::with_hwb(
                 Some(Hue::new(0.)),
                 Some(0.0),
                 Some(0.0),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0grad 0% 0%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+        parse_with_assert_eq!(
+            "hwb(0grad 0% 0%)",
+            Color::SrgbColor(SrgbColor::with_hwb(
                 Some(Hue::new(0.)),
                 Some(0.0),
                 Some(0.0),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0rad 0% 0%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+        parse_with_assert_eq!(
+            "hwb(0rad 0% 0%)",
+            Color::SrgbColor(SrgbColor::with_hwb(
                 Some(Hue::new(0.)),
                 Some(0.0),
                 Some(0.0),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0turn 0% 0%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+        parse_with_assert_eq!(
+            "hwb(0turn 0% 0%)",
+            Color::SrgbColor(SrgbColor::with_hwb(
                 Some(Hue::new(0.)),
                 Some(0.0),
                 Some(0.0),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0 0% 0% / 0.5)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+        parse_with_assert_eq!(
+            "hwb(0 0% 0% / 0.5)",
+            Color::SrgbColor(SrgbColor::with_hwb(
                 Some(Hue::new(0.)),
                 Some(0.0),
                 Some(0.0),
                 Some(AlphaValue::new(0.5))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0deg 0% 0% / 50%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+        parse_with_assert_eq!(
+            "hwb(0deg 0% 0% / 50%)",
+            Color::SrgbColor(SrgbColor::with_hwb(
                 Some(Hue::new(0.)),
                 Some(0.0),
                 Some(0.0),
                 Some(AlphaValue::new(0.5))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(none 0% 0%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+        parse_with_assert_eq!(
+            "hwb(none 0% 0%)",
+            Color::SrgbColor(SrgbColor::with_hwb(
                 None,
                 Some(0.0),
                 Some(0.0),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0 none 0%)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+        parse_with_assert_eq!(
+            "hwb(0 none 0%)",
+            Color::SrgbColor(SrgbColor::with_hwb(
                 Some(Hue::new(0.)),
                 None,
                 Some(0.0),
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0 0% none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+        parse_with_assert_eq!(
+            "hwb(0 0% none)",
+            Color::SrgbColor(SrgbColor::with_hwb(
                 Some(Hue::new(0.)),
                 Some(0.0),
                 None,
                 Some(AlphaValue::new(1.0))
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(none 0% 0% / none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hwb(
-                None,
-                Some(0.0),
-                Some(0.0),
-                None
-            )))
+        parse_with_assert_eq!(
+            "hwb(none 0% 0% / none)",
+            Color::SrgbColor(SrgbColor::with_hwb(None, Some(0.0), Some(0.0), None))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0 none 0% / none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+        parse_with_assert_eq!(
+            "hwb(0 none 0% / none)",
+            Color::SrgbColor(SrgbColor::with_hwb(
                 Some(Hue::new(0.)),
                 None,
                 Some(0.0),
                 None
-            )))
+            ))
         );
-        assert_eq!(
-            Color::parse_with(
-                &component_parser,
-                &mut Parser::new(&mut ParserInput::new("hwb(0 0% none / none)"))
-            ),
-            Ok(Color::SrgbColor(SrgbColor::with_hwb(
+        parse_with_assert_eq!(
+            "hwb(0 0% none / none)",
+            Color::SrgbColor(SrgbColor::with_hwb(
                 Some(Hue::new(0.)),
                 Some(0.0),
                 None,
                 None
-            )))
+            ))
         );
 
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("0deg"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgb(255 0 0 / 0deg)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgb(none, none, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgb(255, none, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgb(none, 255, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgb(none, none, none, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgb(255, none, none, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgb(none, 255, none, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgba(none, none, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgba(255, none, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgba(none, 255, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgba(none, none, none, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgba(255, none, none, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgba(none, 255, none, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("rgba(none, none, 255, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsl(0em 100% 50%)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsl(none, 100%, 50%)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsl(0, none, 50%)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsl(0, 100%, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsl(none, 100%, 50%, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsl(0, none, 50%, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsl(0, 100%, none, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsla(none, 100%, 50%)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsla(0, none, 50%)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsla(0, 100%, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsla(none, 100%, 50%, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsla(0, none, 50%, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hsla(0, 100%, none, none)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hwb(0% 0% 0%)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("hwb(0, 0%, 0%)"))
-        )
-        .is_err());
-        assert!(Color::parse_with(
-            &component_parser,
-            &mut Parser::new(&mut ParserInput::new("notafunction(0 0% 0%)"))
-        )
-        .is_err());
+        // parse_lab
+        parse_with_assert_eq!(
+            "lab(none none none)",
+            Color::CielabColor(CielabColor::new(
+                None,
+                None,
+                None,
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0% -100% -100%)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100% 100% 100%)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0% -100% -125)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100% 100% 125)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0% -125 -100%)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100% 125 100%)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0% -125 -125)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100% 125 125)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0 -100% -100%)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100 100% 100%)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0 -100% -125)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100 100% 125)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0 -125 -100%)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100 125 100%)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0 -125 -125)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100 125 125)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(none none none / none)",
+            Color::CielabColor(CielabColor::new(None, None, None, None))
+        );
+        parse_with_assert_eq!(
+            "lab(0% -100% -100% / 0.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100% 100% 100% / 1.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0% -100% -125 / 0.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100% 100% 125 / 1.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0% -125 -100% / 0.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100% 125 100% / 1.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0% -125 -125 / 0.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100% 125 125 / 1.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0 -100% -100% / 0.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100 100% 100% / 1.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0 -100% -125 / 0.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100 100% 125 / 1.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0 -125 -100% / 0.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100 125 100% / 1.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(0 -125 -125 / 0.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(0.),
+                Some(-125.),
+                Some(-125.),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lab(100 125 125 / 1.0)",
+            Color::CielabColor(CielabColor::new(
+                Some(100.),
+                Some(125.),
+                Some(125.),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+
+        // parse_lch
+        parse_with_assert_eq!(
+            "lch(none none none)",
+            Color::CielabColor(CielabColor::with_lch(
+                None,
+                None,
+                None,
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(0% 0% 0deg)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(0.0),
+                Some(0.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(0 0 0deg)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(0.0),
+                Some(0.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(0% 0 0deg)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(0.0),
+                Some(0.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(0 0% 0deg)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(0.0),
+                Some(0.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(100% 100% 360deg)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(100.0),
+                Some(150.),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(160 230 360deg)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(160.0),
+                Some(230.),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(100% 230 360deg)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(100.0),
+                Some(230.),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(160 100% 360deg)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(160.0),
+                Some(150.),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(none none none / none)",
+            Color::CielabColor(CielabColor::with_lch(None, None, None, None,))
+        );
+        parse_with_assert_eq!(
+            "lch(0% 0% 0deg / 0.0)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(0.0),
+                Some(0.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(0 0 0deg / 0.0)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(0.0),
+                Some(0.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(0% 0 0deg / 0.0)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(0.0),
+                Some(0.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(0 0% 0deg / 0.0)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(0.0),
+                Some(0.),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(100% 100% 360deg / 1.0)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(100.0),
+                Some(150.),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(160 230 360deg / 1.0)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(160.0),
+                Some(230.),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(100% 230 360deg / 1.0)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(100.0),
+                Some(230.),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "lch(160 100% 360deg / 1.0)",
+            Color::CielabColor(CielabColor::with_lch(
+                Some(160.0),
+                Some(150.),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+
+        // parse_oklab
+        parse_with_assert_eq!(
+            "oklab(none none none)",
+            Color::OklabColor(OklabColor::new(
+                None,
+                None,
+                None,
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0% -100% -100%)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.4),
+                Some(-0.4),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(100% 100% 100%)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.4),
+                Some(0.4),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0% -100% -0.5)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.4),
+                Some(-0.5),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(100% 100% 0.5)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.4),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0% -0.5 -100%)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.5),
+                Some(-0.4),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(100% 0.5 100%)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.5),
+                Some(0.4),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0% -0.5 -0.5)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.5),
+                Some(-0.5),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(100% 0.5 0.5)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.5),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0 -100% -100%)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.4),
+                Some(-0.4),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(1 100% 100%)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.4),
+                Some(0.4),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0 -100% -0.5)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.4),
+                Some(-0.5),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(1 100% 0.5)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.4),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0 -0.5 -100%)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.5),
+                Some(-0.4),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(1 0.5 100%)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.5),
+                Some(0.4),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0 -0.5 -0.5)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.5),
+                Some(-0.5),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(1 0.5 0.5)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.5),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(none none none / none)",
+            Color::OklabColor(OklabColor::new(None, None, None, None))
+        );
+        parse_with_assert_eq!(
+            "oklab(0% -100% -100% / 0.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.4),
+                Some(-0.4),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(100% 100% 100% / 1.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.4),
+                Some(0.4),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0% -100% -0.5 / 0.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.4),
+                Some(-0.5),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(100% 100% 0.5 / 1.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.4),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0% -0.5 -100% / 0.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.5),
+                Some(-0.4),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(100% 0.5 100% / 1.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.5),
+                Some(0.4),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0% -0.5 -0.5 / 0.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.5),
+                Some(-0.5),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(100% 0.5 0.5 / 1.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.5),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0 -100% -100% / 0.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.4),
+                Some(-0.4),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(1 100% 100% / 1.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.4),
+                Some(0.4),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0 -100% -0.5 / 0.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.4),
+                Some(-0.5),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(1 100% 0.5 / 1.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.4),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0 -0.5 -100% / 0.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.5),
+                Some(-0.4),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(1 0.5 100% / 1.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.5),
+                Some(0.4),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(0 -0.5 -0.5 / 0.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(0.0),
+                Some(-0.5),
+                Some(-0.5),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklab(1 0.5 0.5 / 1.0)",
+            Color::OklabColor(OklabColor::new(
+                Some(1.0),
+                Some(0.5),
+                Some(0.5),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+
+        // parse_oklch
+        parse_with_assert_eq!(
+            "oklch(none none none)",
+            Color::OklabColor(OklabColor::with_lch(
+                None,
+                None,
+                None,
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(0% 0% 0deg)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(0.0),
+                Some(0.0),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(100% 100% 360deg)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(1.0),
+                Some(0.4),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(0% 0 0deg)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(0.0),
+                Some(0.0),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(100% 0.5 360deg)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(1.0),
+                Some(0.5),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(0 0% 0deg)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(0.0),
+                Some(0.0),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(1 100% 360deg)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(1.0),
+                Some(0.4),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(0 0 0deg)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(0.0),
+                Some(0.0),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(1 0.5 360deg)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(1.0),
+                Some(0.5),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(none none none / none)",
+            Color::OklabColor(OklabColor::with_lch(None, None, None, None))
+        );
+        parse_with_assert_eq!(
+            "oklch(0% 0% 0deg / 0.0)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(0.0),
+                Some(0.0),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(100% 100% 360deg / 1.0)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(1.0),
+                Some(0.4),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(0% 0 0deg / 0.0)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(0.0),
+                Some(0.0),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(100% 0.5 360deg / 1.0)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(1.0),
+                Some(0.5),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(0 0% 0deg / 0.0)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(0.0),
+                Some(0.0),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(1 100% 360deg / 1.0)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(1.0),
+                Some(0.4),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(0 0 0deg / 0.0)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(0.0),
+                Some(0.0),
+                Some(Hue::new(0.)),
+                Some(AlphaValue::new(0.0))
+            ))
+        );
+        parse_with_assert_eq!(
+            "oklch(1 0.5 360deg / 1.0)",
+            Color::OklabColor(OklabColor::with_lch(
+                Some(1.0),
+                Some(0.5),
+                Some(Hue::new(360.)),
+                Some(AlphaValue::new(1.0))
+            ))
+        );
+
+        parse_with_assert_is_err!("0deg");
+        parse_with_assert_is_err!("rgb(255 0 0 / 0deg)");
+        parse_with_assert_is_err!("rgb(none, none, none)");
+        parse_with_assert_is_err!("rgb(255, none, none)");
+        parse_with_assert_is_err!("rgb(none, 255, none)");
+        parse_with_assert_is_err!("rgb(none, none, none, none)");
+        parse_with_assert_is_err!("rgb(255, none, none, none)");
+        parse_with_assert_is_err!("rgb(none, 255, none, none)");
+        parse_with_assert_is_err!("rgba(none, none, none)");
+        parse_with_assert_is_err!("rgba(255, none, none)");
+        parse_with_assert_is_err!("rgba(none, 255, none)");
+        parse_with_assert_is_err!("rgba(none, none, none, none)");
+        parse_with_assert_is_err!("rgba(255, none, none, none)");
+        parse_with_assert_is_err!("rgba(none, 255, none, none)");
+        parse_with_assert_is_err!("rgba(none, none, 255, none)");
+        parse_with_assert_is_err!("hsl(0em 100% 50%)");
+        parse_with_assert_is_err!("hsl(none, 100%, 50%)");
+        parse_with_assert_is_err!("hsl(0, none, 50%)");
+        parse_with_assert_is_err!("hsl(0, 100%, none)");
+        parse_with_assert_is_err!("hsl(none, 100%, 50%, none)");
+        parse_with_assert_is_err!("hsl(0, none, 50%, none)");
+        parse_with_assert_is_err!("hsl(0, 100%, none, none)");
+        parse_with_assert_is_err!("hsla(none, 100%, 50%)");
+        parse_with_assert_is_err!("hsla(0, none, 50%)");
+        parse_with_assert_is_err!("hsla(0, 100%, none)");
+        parse_with_assert_is_err!("hsla(none, 100%, 50%, none)");
+        parse_with_assert_is_err!("hsla(0, none, 50%, none)");
+        parse_with_assert_is_err!("hsla(0, 100%, none, none)");
+        parse_with_assert_is_err!("hwb(0% 0% 0%)");
+        parse_with_assert_is_err!("hwb(0, 0%, 0%)");
+        parse_with_assert_is_err!("notafunction(0 0% 0%)");
     }
 
     #[test]
